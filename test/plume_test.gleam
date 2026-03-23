@@ -1686,5 +1686,30 @@ pub fn timestamp_negative_test() {
   assert timestamps == decoded
 }
 
+pub fn query_constraint_error_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE q_uniq (id INTEGER PRIMARY KEY, name TEXT UNIQUE)"
+    |> plume.exec(conn)
+
+  let assert Ok(_) =
+    plume.query(
+      "INSERT INTO q_uniq VALUES (?, ?)",
+      [plume.Int(1), plume.Text("alice")],
+      conn,
+    )
+
+  let assert Error(plume.DbError(code, msg, _detail, _offset)) =
+    plume.query(
+      "INSERT INTO q_uniq VALUES (?, ?)",
+      [plume.Int(2), plume.Text("alice")],
+      conn,
+    )
+
+  assert plume.ConstraintUnique == code
+  assert msg == "UNIQUE constraint failed: q_uniq.name"
+}
+
 @external(erlang, "plume_ffi", "rescue")
 fn with_rescue(next: fn() -> t) -> Result(t, Nil)

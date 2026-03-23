@@ -121,7 +121,7 @@ pub fn query(
 ) -> Result(Queried, PlumeError) {
   use stmt <- result.try(prepare(sql, conn, []))
 
-  fetch_rows(stmt, values)
+  fetch_rows(stmt, values, conn.ref)
   |> result.map(fn(rows) {
     let count = list.length(rows)
     let fields = column_names_(stmt)
@@ -162,10 +162,11 @@ fn prepare_flag_value(flags: List(PrepareFlag)) -> Int {
 fn fetch_rows(
   stmt: Reference,
   args: List(Value),
+  conn: Reference,
 ) -> Result(List(Dynamic), PlumeError) {
   case args {
-    [] -> fetchall_(stmt)
-    vals -> bind(stmt, vals) |> result.try(fetchall_)
+    [] -> fetchall_(stmt, conn)
+    vals -> bind(stmt, vals) |> result.try(fetchall_(_, conn))
   }
 }
 
@@ -714,7 +715,10 @@ fn prepare_(
 ) -> Result(Reference, PlumeError)
 
 @external(erlang, "plume_ffi", "fetchall")
-fn fetchall_(statement: Reference) -> Result(List(Dynamic), PlumeError)
+fn fetchall_(
+  statement: Reference,
+  conn: Reference,
+) -> Result(List(Dynamic), PlumeError)
 
 @external(erlang, "esqlite3_nif", "column_names")
 fn column_names_(statement: Reference) -> List(String)

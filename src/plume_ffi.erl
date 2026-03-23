@@ -10,7 +10,7 @@
   exec/2,
   prepare/3,
   status/0,
-  fetchall/1,
+  fetchall/2,
   close/1,
   rescue/1,
   handle_crash/2
@@ -30,17 +30,17 @@ close(Connection) ->
     {error, nil}
   end.
 
-fetchall(Statement) ->
-  case fetchall1(Statement, []) of
+fetchall(Statement, Connection) ->
+  case fetchall1(Statement, Connection, []) of
     {error, _} = E -> E;
     Rows -> {ok, lists:map(fun erlang:list_to_tuple/1, Rows)}
   end.
 
-fetchall1(Statement, Acc) ->
+fetchall1(Statement, Connection, Acc) ->
   case esqlite3_nif:step(Statement) of
-    Row when is_list(Row) -> fetchall1(Statement, [Row|Acc]);
+    Row when is_list(Row) -> fetchall1(Statement, Connection, [Row|Acc]);
     '$done' -> lists:reverse(Acc);
-    {error, Code} -> code_to_error(Statement, Code)
+    {error, Code} -> code_to_error(Connection, Code)
   end.
 
 stats(#{used := Used, highwater := Highwater}) ->
