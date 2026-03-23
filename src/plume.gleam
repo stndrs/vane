@@ -106,6 +106,7 @@ pub fn query(
   })
 }
 
+// not in use
 type PrepareFlag {
   Persistent
   NoVtab
@@ -126,6 +127,7 @@ const persistent = 0x01
 
 fn prepare_flag_value(flags: List(PrepareFlag)) -> Int {
   case flags {
+    [] -> 0
     [NoVtab] -> no_vtab
     [Persistent] -> int.bitwise_or(0, persistent)
     [_, _] -> int.bitwise_or(no_vtab, persistent)
@@ -342,19 +344,19 @@ pub fn transaction(
   |> result.try(fn(res) { commit(tx) |> result.replace(res) })
 }
 
-pub fn begin(conn: Connection) -> Result(Connection, TransactionError(error)) {
+fn begin(conn: Connection) -> Result(Connection, TransactionError(error)) {
   exec("BEGIN", on: conn)
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
   |> result.map(fn(_) { Connection(conn.ref) })
 }
 
-pub fn commit(conn: Connection) -> Result(Connection, TransactionError(error)) {
+fn commit(conn: Connection) -> Result(Connection, TransactionError(error)) {
   exec("COMMIT", on: conn)
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
   |> result.map(fn(_) { Connection(conn.ref) })
 }
 
-pub fn rollback(conn: Connection) -> Result(Connection, TransactionError(error)) {
+fn rollback(conn: Connection) -> Result(Connection, TransactionError(error)) {
   exec("ROLLBACK", on: conn)
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
   |> result.map(fn(_) { Connection(conn.ref) })

@@ -1024,23 +1024,667 @@ pub fn error_to_string_test() {
   assert string.contains(msg, "SELEKT")
 }
 
-// Use-after-close test
-
 pub fn use_after_close_crashes_test() {
   let config = plume.config(":memory:")
   let assert Ok(conn) = plume.open(config)
   let assert Ok(Nil) = plume.close(conn)
 
-  // exec on a closed connection triggers handle_conn_error -> code_to_error
-  // which calls esqplume3_nif:error_info on the closed ref and crashes
-
   let result = plume.exec("SELECT 1", conn)
-  let assert Error(_crash) = result
+  let assert Error(plume.ConnectionUnavailable) = result
 }
 
-// pub fn close_after_close_test() {
-//   todo
-// }
+pub fn open_invalid_path_test() {
+  let config = plume.config("/nonexistent/path/to/db.sqlite")
+  let assert Error(plume.ConnectionFailed) = plume.open(config)
+}
+
+pub fn close_double_close_test() {
+  let config = plume.config(":memory:")
+  let assert Ok(conn) = plume.open(config)
+  let assert Ok(Nil) = plume.close(conn)
+
+  let _result = plume.close(conn)
+}
+
+pub fn use_after_close_returns_connection_unavailable_test() {
+  let config = plume.config(":memory:")
+  let assert Ok(conn) = plume.open(config)
+  let assert Ok(Nil) = plume.close(conn)
+
+  let assert Error(plume.ConnectionUnavailable) = plume.exec("SELECT 1", conn)
+}
+
+pub fn query_after_close_returns_connection_unavailable_test() {
+  let config = plume.config(":memory:")
+  let assert Ok(conn) = plume.open(config)
+  let assert Ok(Nil) = plume.close(conn)
+
+  let assert Error(plume.ConnectionUnavailable) =
+    plume.query("SELECT 1", [], conn)
+}
+
+pub fn int_bind_test() {
+  use conn <- connect()
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Int(42)], conn)
+
+  let assert 1 = queried.count
+
+  let assert Ok([42]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.int)
+      decode.success(val)
+    })
+}
+
+pub fn int_roundtrip_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE int_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
+    |> plume.exec(conn)
+
+  let ints = [0, 1, -1, 42, -42, 2_147_483_647, -2_147_483_648]
+
+  let assert Ok(_) = {
+    use val <- list.try_map(ints)
+    "INSERT INTO int_test (val) VALUES (?)"
+    |> plume.query([plume.Int(val)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT val FROM int_test ORDER BY id", [], conn)
+
+  let assert 7 = queried.count
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.int)
+      decode.success(val)
+    })
+
+  assert ints == decoded
+}
+
+pub fn int_large_values_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE bigint_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
+    |> plume.exec(conn)
+
+  let large_ints = [
+    9_223_372_036_854_775_807,
+    -9_223_372_036_854_775_807,
+  ]
+
+  let assert Ok(_) = {
+    use val <- list.try_map(large_ints)
+    "INSERT INTO bigint_test (val) VALUES (?)"
+    |> plume.query([plume.Int(val)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT val FROM bigint_test ORDER BY id", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.int)
+      decode.success(val)
+    })
+
+  assert large_ints == decoded
+}
+
+pub fn text_bind_test() {
+  use conn <- connect()
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Text("hello")], conn)
+
+  let assert 1 = queried.count
+
+  let assert Ok(["hello"]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+}
+
+pub fn text_unicode_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE unicode_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
+    |> plume.exec(conn)
+
+  let strings = [
+    "Hello 🌍🎉",
+    "你好世界",
+    "مرحبا",
+    "e\u{0301}",
+    "café ☕ naïve 日本語",
+  ]
+
+  let assert Ok(_) = {
+    use val <- list.try_map(strings)
+    "INSERT INTO unicode_test (val) VALUES (?)"
+    |> plume.query([plume.Text(val)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT val FROM unicode_test ORDER BY id", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+
+  assert strings == decoded
+}
+
+pub fn text_special_chars_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE special_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
+    |> plume.exec(conn)
+
+  let strings = [
+    "'; DROP TABLE users; --",
+    "line1\nline2\ttab",
+    "back\\slash",
+    "it's a \"test\"",
+  ]
+
+  let assert Ok(_) = {
+    use val <- list.try_map(strings)
+    "INSERT INTO special_test (val) VALUES (?)"
+    |> plume.query([plume.Text(val)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT val FROM special_test ORDER BY id", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+
+  assert strings == decoded
+}
+
+pub fn error_to_string_connection_failed_test() {
+  let msg = plume.error_to_string(plume.ConnectionFailed)
+  assert msg == "[plume.ConnectionFailed]"
+}
+
+pub fn error_to_string_connection_unavailable_test() {
+  let msg = plume.error_to_string(plume.ConnectionUnavailable)
+  assert msg == "[plume.ConnectionUnavailable]"
+}
+
+pub fn error_to_string_plume_error_test() {
+  let msg = plume.error_to_string(plume.PlumeError("something went wrong"))
+  assert msg == "[plume.PlumeError] message: something went wrong"
+}
+
+pub fn error_to_string_db_error_format_test() {
+  let err =
+    plume.DbError(
+      code: plume.ConstraintUnique,
+      message: "UNIQUE constraint failed",
+      detail: "constraint failed",
+      offset: 42,
+    )
+  let msg = plume.error_to_string(err)
+
+  assert msg
+    == "[plume.DbError] code: CONSTRAINT_UNIQUE, message: UNIQUE constraint failed, detail: constraint failed"
+}
+
+pub fn code_from_int_primary_codes_test() {
+  assert plume.code_from_int(0) == plume.GenericOk
+  assert plume.code_from_int(1) == plume.GenericError
+  assert plume.code_from_int(2) == plume.Internal
+  assert plume.code_from_int(3) == plume.Perm
+  assert plume.code_from_int(4) == plume.Abort
+  assert plume.code_from_int(5) == plume.Busy
+  assert plume.code_from_int(6) == plume.Locked
+  assert plume.code_from_int(7) == plume.Nomem
+  assert plume.code_from_int(8) == plume.Readonly
+  assert plume.code_from_int(9) == plume.Interrupt
+  assert plume.code_from_int(10) == plume.Ioerr
+  assert plume.code_from_int(11) == plume.Corrupt
+  assert plume.code_from_int(12) == plume.Notfound
+  assert plume.code_from_int(13) == plume.Full
+  assert plume.code_from_int(14) == plume.Cantopen
+  assert plume.code_from_int(15) == plume.Protocol
+  assert plume.code_from_int(16) == plume.Empty
+  assert plume.code_from_int(17) == plume.Schema
+  assert plume.code_from_int(18) == plume.Toobig
+  assert plume.code_from_int(19) == plume.Constraint
+  assert plume.code_from_int(20) == plume.Mismatch
+  assert plume.code_from_int(21) == plume.Misuse
+  assert plume.code_from_int(22) == plume.Nolfs
+  assert plume.code_from_int(23) == plume.Auth
+  assert plume.code_from_int(24) == plume.Format
+  assert plume.code_from_int(25) == plume.Range
+  assert plume.code_from_int(26) == plume.Notadb
+  assert plume.code_from_int(27) == plume.Notice
+  assert plume.code_from_int(28) == plume.Warning
+  assert plume.code_from_int(100) == plume.Row
+  assert plume.code_from_int(101) == plume.Done
+}
+
+pub fn code_from_int_extended_codes_test() {
+  assert plume.code_from_int(516) == plume.AbortRollback
+  assert plume.code_from_int(279) == plume.AuthUser
+  assert plume.code_from_int(261) == plume.BusyRecovery
+  assert plume.code_from_int(517) == plume.BusySnapshot
+  assert plume.code_from_int(773) == plume.BusyTimeout
+  assert plume.code_from_int(1038) == plume.CantopenConvpath
+  assert plume.code_from_int(1294) == plume.CantopenDirtywal
+  assert plume.code_from_int(782) == plume.CantopenFullpath
+  assert plume.code_from_int(526) == plume.CantopenIsdir
+  assert plume.code_from_int(270) == plume.CantopenNotempdir
+  assert plume.code_from_int(1550) == plume.CantopenSymlink
+  assert plume.code_from_int(275) == plume.ConstraintCheck
+  assert plume.code_from_int(531) == plume.ConstraintCommithook
+  assert plume.code_from_int(3091) == plume.ConstraintDatatype
+  assert plume.code_from_int(787) == plume.ConstraintForeignkey
+  assert plume.code_from_int(1043) == plume.ConstraintFunction
+  assert plume.code_from_int(1299) == plume.ConstraintNotnull
+  assert plume.code_from_int(2835) == plume.ConstraintPinned
+  assert plume.code_from_int(1555) == plume.ConstraintPrimarykey
+  assert plume.code_from_int(2579) == plume.ConstraintRowid
+  assert plume.code_from_int(1811) == plume.ConstraintTrigger
+  assert plume.code_from_int(2067) == plume.ConstraintUnique
+  assert plume.code_from_int(2323) == plume.ConstraintVtab
+  assert plume.code_from_int(779) == plume.CorruptIndex
+  assert plume.code_from_int(523) == plume.CorruptSequence
+  assert plume.code_from_int(267) == plume.CorruptVtab
+  assert plume.code_from_int(257) == plume.ErrorMissingCollseq
+  assert plume.code_from_int(513) == plume.ErrorRetry
+  assert plume.code_from_int(769) == plume.ErrorSnapshot
+  assert plume.code_from_int(3338) == plume.IoerrAccess
+  assert plume.code_from_int(7178) == plume.IoerrAuth
+  assert plume.code_from_int(7434) == plume.IoerrBeginAtomic
+  assert plume.code_from_int(2826) == plume.IoerrBlocked
+  assert plume.code_from_int(3594) == plume.IoerrCheckreservedlock
+  assert plume.code_from_int(4106) == plume.IoerrClose
+  assert plume.code_from_int(7690) == plume.IoerrCommitAtomic
+  assert plume.code_from_int(6666) == plume.IoerrConvpath
+  assert plume.code_from_int(8458) == plume.IoerrCorruptfs
+  assert plume.code_from_int(8202) == plume.IoerrData
+  assert plume.code_from_int(2570) == plume.IoerrDelete
+  assert plume.code_from_int(5898) == plume.IoerrDeleteNoent
+  assert plume.code_from_int(4362) == plume.IoerrDirClose
+  assert plume.code_from_int(1290) == plume.IoerrDirFsync
+  assert plume.code_from_int(1802) == plume.IoerrFstat
+  assert plume.code_from_int(1034) == plume.IoerrFsync
+  assert plume.code_from_int(6410) == plume.IoerrGettemppath
+  assert plume.code_from_int(3850) == plume.IoerrLock
+  assert plume.code_from_int(6154) == plume.IoerrMmap
+  assert plume.code_from_int(3082) == plume.IoerrNomem
+  assert plume.code_from_int(2314) == plume.IoerrRdlock
+}
+
+pub fn code_from_int_unknown_returns_unexpected_error_test() {
+  assert plume.code_from_int(99_999) == plume.UnexpectedError
+  assert plume.code_from_int(-1) == plume.UnexpectedError
+  assert plume.code_from_int(-999) == plume.UnexpectedError
+}
+
+pub fn exec_ddl_returns_zero_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE ddl_test (id INTEGER PRIMARY KEY, name TEXT)"
+    |> plume.exec(conn)
+
+  let assert Ok(0) =
+    "ALTER TABLE ddl_test ADD COLUMN email TEXT"
+    |> plume.exec(conn)
+
+  let assert Ok(0) =
+    "DROP TABLE ddl_test"
+    |> plume.exec(conn)
+}
+
+pub fn exec_multi_row_changes_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE multi_test (id INTEGER PRIMARY KEY, val TEXT)"
+    |> plume.exec(conn)
+
+  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (1, 'a')", conn)
+  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (2, 'b')", conn)
+  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (3, 'c')", conn)
+
+  let assert Ok(3) =
+    "UPDATE multi_test SET val = 'updated'"
+    |> plume.exec(conn)
+
+  let assert Ok(3) =
+    "DELETE FROM multi_test"
+    |> plume.exec(conn)
+}
+
+pub fn time_milliseconds_under_10_test() {
+  use conn <- connect()
+
+  let time = calendar.TimeOfDay(10, 20, 30, 5_000_000)
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+
+  let assert Ok(["10:20:30.005"]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+}
+
+pub fn time_milliseconds_10_to_99_test() {
+  use conn <- connect()
+
+  let time = calendar.TimeOfDay(10, 20, 30, 50_000_000)
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+
+  let assert Ok(["10:20:30.050"]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+}
+
+pub fn time_milliseconds_exactly_100_test() {
+  use conn <- connect()
+
+  let time = calendar.TimeOfDay(10, 20, 30, 100_000_000)
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+
+  let assert Ok(["10:20:30.100"]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+}
+
+pub fn time_no_milliseconds_test() {
+  use conn <- connect()
+
+  let time = calendar.TimeOfDay(8, 5, 0, 0)
+
+  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+
+  let assert Ok(["08:05:00"]) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+}
+
+pub fn duration_zero_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE dur_zero_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
+    |> plume.exec(conn)
+
+  let dur = duration.seconds(0)
+
+  let assert Ok(_) =
+    "INSERT INTO dur_zero_test (dur) VALUES (?)"
+    |> plume.query([plume.Duration(dur)], conn)
+
+  let assert Ok(queried) =
+    plume.query("SELECT dur FROM dur_zero_test", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use d <- decode.field(0, decode_duration())
+      decode.success(d)
+    })
+
+  assert decoded == [dur]
+}
+
+pub fn duration_nanoseconds_only_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE dur_ns_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
+    |> plume.exec(conn)
+
+  let durations = [
+    duration.nanoseconds(1),
+    duration.nanoseconds(500_000_000),
+    duration.nanoseconds(999_999_999),
+  ]
+
+  let assert Ok(_) = {
+    use dur <- list.try_map(durations)
+    "INSERT INTO dur_ns_test (dur) VALUES (?)"
+    |> plume.query([plume.Duration(dur)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT dur FROM dur_ns_test ORDER BY id", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use d <- decode.field(0, decode_duration())
+      decode.success(d)
+    })
+
+  assert durations == decoded
+}
+
+pub fn date_single_digit_day_and_month_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE date_pad_test (id INTEGER PRIMARY KEY AUTOINCREMENT, d TEXT)"
+    |> plume.exec(conn)
+
+  let dates = [
+    calendar.Date(2025, calendar.January, 1),
+    calendar.Date(2025, calendar.September, 9),
+    calendar.Date(2025, calendar.October, 10),
+    calendar.Date(2024, calendar.February, 29),
+  ]
+
+  let assert Ok(_) = {
+    use date <- list.try_map(dates)
+    "INSERT INTO date_pad_test (d) VALUES (?)"
+    |> plume.query([plume.Date(date)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT d FROM date_pad_test ORDER BY id", [], conn)
+
+  let assert Ok(raw) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+
+  assert raw == ["2025-01-01", "2025-09-09", "2025-10-10", "2024-02-29"]
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode_date())
+      decode.success(val)
+    })
+
+  assert dates == decoded
+}
+
+pub fn query_parameterized_empty_result_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE param_empty (id INTEGER PRIMARY KEY, name TEXT)"
+    |> plume.exec(conn)
+
+  let assert Ok(1) =
+    "INSERT INTO param_empty VALUES (1, 'exists')"
+    |> plume.exec(conn)
+
+  let assert Ok(queried) =
+    plume.query(
+      "SELECT * FROM param_empty WHERE id = ?",
+      [plume.Int(999)],
+      conn,
+    )
+
+  assert queried.count == 0
+  assert queried.rows == []
+  assert queried.fields == ["id", "name"]
+}
+
+pub fn query_expression_fields_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE expr_test (id INTEGER PRIMARY KEY, name TEXT)"
+    |> plume.exec(conn)
+
+  let assert Ok(1) =
+    "INSERT INTO expr_test VALUES (1, 'test')"
+    |> plume.exec(conn)
+
+  let assert Ok(queried) =
+    plume.query("SELECT 1+1, COUNT(*), name AS alias FROM expr_test", [], conn)
+
+  assert queried.count == 1
+  assert queried.fields == ["1+1", "COUNT(*)", "alias"]
+}
+
+pub fn constraint_unique_error_test() {
+  use conn <- connect()
+
+  let assert Ok(0) =
+    "CREATE TABLE uniq_test (id INTEGER PRIMARY KEY, email TEXT UNIQUE)"
+    |> plume.exec(conn)
+
+  let assert Ok(1) =
+    "INSERT INTO uniq_test VALUES (1, 'a@b.com')"
+    |> plume.exec(conn)
+
+  let assert Error(plume.DbError(code, _msg, _detail, _offset)) =
+    "INSERT INTO uniq_test VALUES (2, 'a@b.com')"
+    |> plume.exec(conn)
+
+  assert plume.ConstraintUnique == code
+}
+
+pub fn syntax_error_offset_test() {
+  use conn <- connect()
+
+  let assert Error(plume.DbError(_, _, _, offset)) =
+    "SELEKT 1"
+    |> plume.exec(conn)
+
+  assert offset == 0
+
+  let assert Error(plume.DbError(_, _, _, offset2)) =
+    "SELECT 1 FORM users"
+    |> plume.exec(conn)
+
+  assert offset2 > 0
+}
+
+pub fn datetime_millisecond_branches_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE dt_ms_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dt TEXT)"
+    |> plume.exec(conn)
+
+  let datetimes = [
+    #(
+      calendar.Date(2025, calendar.January, 15),
+      calendar.TimeOfDay(10, 20, 30, 5_000_000),
+    ),
+    #(
+      calendar.Date(2025, calendar.June, 15),
+      calendar.TimeOfDay(10, 20, 30, 50_000_000),
+    ),
+    #(calendar.Date(2025, calendar.March, 1), calendar.TimeOfDay(0, 0, 0, 0)),
+    #(
+      calendar.Date(2025, calendar.December, 31),
+      calendar.TimeOfDay(23, 59, 59, 999_000_000),
+    ),
+  ]
+
+  let assert Ok(_) = {
+    use dt <- list.try_map(datetimes)
+    let #(date, time) = dt
+    "INSERT INTO dt_ms_test (dt) VALUES (?)"
+    |> plume.query([plume.Datetime(date, time)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT dt FROM dt_ms_test ORDER BY id", [], conn)
+
+  let assert Ok(raw) =
+    decode_rows(queried.rows, {
+      use val <- decode.field(0, decode.string)
+      decode.success(val)
+    })
+
+  assert raw
+    == [
+      "2025-01-15 10:20:30.005",
+      "2025-06-15 10:20:30.050",
+      "2025-03-01 00:00:00",
+      "2025-12-31 23:59:59.999",
+    ]
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use dt <- decode.field(0, decode_datetime())
+      decode.success(dt)
+    })
+
+  assert datetimes == decoded
+}
+
+pub fn timestamp_negative_test() {
+  use conn <- connect()
+
+  let assert Ok(_) =
+    "CREATE TABLE ts_neg_test (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)"
+    |> plume.exec(conn)
+
+  let timestamps = [
+    timestamp.from_unix_seconds(-1),
+    timestamp.from_unix_seconds(-86_400),
+  ]
+
+  let assert Ok(_) = {
+    use ts <- list.try_map(timestamps)
+    "INSERT INTO ts_neg_test (ts) VALUES (?)"
+    |> plume.query([plume.Timestamp(ts)], conn)
+  }
+
+  let assert Ok(queried) =
+    plume.query("SELECT ts FROM ts_neg_test ORDER BY id", [], conn)
+
+  let assert Ok(decoded) =
+    decode_rows(queried.rows, {
+      use ts <- decode.field(0, decode_timestamp())
+      decode.success(ts)
+    })
+
+  assert timestamps == decoded
+}
 
 @external(erlang, "plume_ffi", "rescue")
 fn with_rescue(next: fn() -> t) -> Result(t, Nil)
