@@ -8,10 +8,13 @@ import gleam/time/calendar
 import gleam/time/duration
 import gleam/time/timestamp
 
+/// A connection to a SQLite database. Create one with `open` and release it
+/// with `close` when you're done.
 pub opaque type Connection {
   Connection(ref: Reference)
 }
 
+/// Global SQLite memory statistics returned by `status`.
 pub type StatusInfo {
   StatusInfo(
     memory_used: Stats,
@@ -24,21 +27,33 @@ pub type StatusInfo {
   )
 }
 
+/// A pair of current and highwater values for a SQLite status metric.
 pub type Stats {
   Stats(used: Int, highwater: Int)
 }
 
+/// Returns global SQLite memory and resource usage statistics.
 @external(erlang, "plume_ffi", "status")
 pub fn status() -> StatusInfo
 
+/// Configuration for opening a database connection.
 pub type Config {
   Config(db: String)
 }
 
+/// Creates a `Config` for the given database path. Pass `":memory:"` for an
+/// in-memory database, or a file path for a persistent one.
 pub fn config(db: String) -> Config {
   Config(db:)
 }
 
+/// Errors returned by plume operations.
+///
+/// - `ConnectionFailed` — the database could not be opened.
+/// - `ConnectionUnavailable` — the connection was already closed.
+/// - `DbError` — SQLite returned an error with a code, message, extended
+///   detail string, and byte offset into the SQL.
+/// - `PlumeError` — a catch-all for other error conditions.
 pub type PlumeError {
   ConnectionFailed
   ConnectionUnavailable
@@ -46,6 +61,7 @@ pub type PlumeError {
   PlumeError(message: String)
 }
 
+/// Formats a `PlumeError` as a human-readable string suitable for logging.
 pub fn error_to_string(err: PlumeError) -> String {
   case err {
     ConnectionFailed -> "[plume.ConnectionFailed]"
@@ -62,6 +78,7 @@ pub fn error_to_string(err: PlumeError) -> String {
   }
 }
 
+/// A value to bind to a query parameter. Each variant maps to a SQLite type:
 pub type Value {
   Null
   Bool(Bool)
@@ -76,20 +93,27 @@ pub type Value {
   Duration(duration.Duration)
 }
 
+/// The result of a `query` call. Contains the number of rows returned, the
+/// column names, and the rows themselves as `Dynamic` values for decoding.
 pub type Queried {
   Queried(count: Int, fields: List(String), rows: List(Dynamic))
 }
 
+/// Opens a new connection to the database specified in `conf`.
 pub fn open(conf: Config) -> Result(Connection, PlumeError) {
   charlist.from_string(conf.db)
   |> open_
   |> result.map(Connection)
 }
 
+/// Closes a database connection. Returns `Ok(Nil)` on success, or
+/// `Error(Nil)` if the connection was already closed.
 pub fn close(conn: Connection) -> Result(Nil, Nil) {
   close_(conn.ref)
 }
 
+/// Executes a query with positional parameter binding and returns the result
+/// rows. Use `?` placeholders in the SQL and pass values in the same order.
 pub fn query(
   sql: String,
   values: List(Value),
@@ -317,17 +341,26 @@ fn bind_blob(
   |> result.replace(stmt)
 }
 
+/// Executes a SQL statement that does not return rows (DDL, INSERT, UPDATE,
+/// DELETE). Returns the number of rows changed.
 pub fn exec(sql: String, on conn: Connection) -> Result(Int, PlumeError) {
   exec_(conn.ref, sql)
   |> result.map(changes_)
 }
 
+/// Errors specific to transaction operations.
 pub type TransactionError(error) {
+  /// The callback returns `Error` so the transaction was rolled back.
   RollbackError(cause: error)
+  /// A transaction operation was attempted outside of a transaction.
   NotInTransaction
+  /// BEGIN, COMMIT, or ROLLBACK failed.
   TransactionError(message: String)
 }
 
+/// Runs `next` inside a BEGIN/COMMIT transaction. If `next` returns `Error`,
+/// the transaction is rolled back and the error is wrapped in `RollbackError`.
+/// If `next` crashes, the transaction is still safely rolled back.
 pub fn transaction(
   conn: Connection,
   next: fn(Connection) -> Result(t, error),
@@ -364,6 +397,8 @@ fn rollback(conn: Connection) -> Result(Connection, TransactionError(error)) {
 
 // Error codes
 
+/// SQLite result codes. Includes both primary codes (e.g. `Busy`, `Constraint`)
+/// and extended codes (e.g. `BusyTimeout`, `ConstraintUnique`).
 pub type Code {
   Abort
   Auth
@@ -536,6 +571,9 @@ fn code_to_string(code: Code) -> String {
   }
 }
 
+/// Converts a numeric SQLite result code to the corresponding `Code` variant.
+/// Returns `UnexpectedError` for unrecognised values. This function is
+/// internal and not part of the public API.
 @internal
 pub fn code_from_int(code: Int) -> Code {
   case code {
