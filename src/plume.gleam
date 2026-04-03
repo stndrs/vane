@@ -11,6 +11,7 @@ import gleam/time/timestamp
 /// A connection to a SQLite database. Create one with `open` and release it
 /// with `close` when you're done.
 pub opaque type Connection {
+  Database(config: Config)
   Connection(ref: Reference)
 }
 
@@ -47,18 +48,39 @@ pub fn config(db: String) -> Config {
   Config(db:)
 }
 
+/// Returns a `Connection`. This function does not open a connection to
+/// the configured sqlite database. Passing the `Connection` record
+/// to a query function (e.g. `plume.query`) will open the connection,
+/// perform the query, and then close the connection.
+pub fn new(config: Config) -> Connection {
+  Database(config:)
+}
+
+/// Connects to the configured sqlite database and remains open until the callback
+/// completes.
+pub fn with_connection(
+  config: Config,
+  next: fn(Connection) -> t,
+) -> Result(t, PlumeError) {
+  charlist.from_string(config.db)
+  |> open_
+  |> result.map(fn(ref) {
+    let res = Connection(ref:) |> next
+
+    let _ = close_(ref)
+
+    res
+  })
+}
+
 /// Errors returned by plume operations.
-///
-/// - `ConnectionFailed` — the database could not be opened.
-/// - `ConnectionUnavailable` — the connection was already closed.
-/// - `DbError` — SQLite returned an error with a code, message, extended
-///   detail string, and byte offset into the SQL.
-/// - `PlumeError` — a catch-all for other error conditions.
 pub type PlumeError {
+  /// The database connection could not be opened.
   ConnectionFailed
+  /// The connection was already closed.
   ConnectionUnavailable
+  /// SQLite error
   DbError(code: Code, message: String, detail: String, offset: Int)
-  PlumeError(message: String)
 }
 
 /// Formats a `PlumeError` as a human-readable string suitable for logging.
@@ -74,7 +96,6 @@ pub fn error_to_string(err: PlumeError) -> String {
       <> ", detail: "
       <> detail
     }
-    PlumeError(message:) -> "[plume.PlumeError] message: " <> message
   }
 }
 
@@ -109,7 +130,30 @@ pub fn open(conf: Config) -> Result(Connection, PlumeError) {
 /// Closes a database connection. Returns `Ok(Nil)` on success, or
 /// `Error(Nil)` if the connection was already closed.
 pub fn close(conn: Connection) -> Result(Nil, Nil) {
-  close_(conn.ref)
+  case conn {
+    Database(_) -> Ok(Nil)
+    Connection(ref:) -> close_(ref)
+  }
+}
+
+fn with_single_connection(
+  conn: Connection,
+  next: fn(Reference) -> Result(t, PlumeError),
+) -> Result(t, PlumeError) {
+  case conn {
+    Database(config:) -> {
+      charlist.from_string(config.db)
+      |> open_
+      |> result.try(fn(ref) {
+        let res = next(ref)
+
+        let _ = close_(ref)
+
+        res
+      })
+    }
+    Connection(ref:) -> next(ref)
+  }
 }
 
 /// Executes a query with positional parameter binding and returns the result
@@ -119,9 +163,10 @@ pub fn query(
   values: List(Value),
   conn: Connection,
 ) -> Result(Queried, PlumeError) {
-  use stmt <- result.try(prepare(sql, conn, []))
+  use ref <- with_single_connection(conn)
+  use stmt <- result.try(prepare(sql, ref, []))
 
-  fetch_rows(stmt, values, conn.ref)
+  fetch_rows(stmt, values, ref)
   |> result.map(fn(rows) {
     let count = list.length(rows)
     let fields = column_names_(stmt)
@@ -138,11 +183,11 @@ type PrepareFlag {
 
 fn prepare(
   sql: String,
-  conn: Connection,
+  ref: Reference,
   flags: List(PrepareFlag),
 ) -> Result(Reference, PlumeError) {
   prepare_flag_value(flags)
-  |> prepare_(conn.ref, sql, _)
+  |> prepare_(ref, sql, _)
 }
 
 const no_vtab = 0x04
@@ -162,11 +207,11 @@ fn prepare_flag_value(flags: List(PrepareFlag)) -> Int {
 fn fetch_rows(
   stmt: Reference,
   args: List(Value),
-  conn: Reference,
+  ref: Reference,
 ) -> Result(List(Dynamic), PlumeError) {
   case args {
-    [] -> fetchall_(stmt, conn)
-    vals -> bind(stmt, vals) |> result.try(fetchall_(_, conn))
+    [] -> fetchall_(stmt, ref)
+    vals -> bind(stmt, vals) |> result.try(fetchall_(_, ref))
   }
 }
 
@@ -342,10 +387,11 @@ fn bind_blob(
   |> result.replace(stmt)
 }
 
-/// Executes a SQL statement that does not return rows (DDL, INSERT, UPDATE,
-/// DELETE). Returns the number of rows changed.
-pub fn exec(sql: String, on conn: Connection) -> Result(Int, PlumeError) {
-  exec_(conn.ref, sql)
+/// Executes a SQL statement. Returns the number of rows changed.
+pub fn execute(sql: String, on conn: Connection) -> Result(Int, PlumeError) {
+  use ref <- with_single_connection(conn)
+
+  exec_(ref, sql)
   |> result.map(changes_)
 }
 
@@ -366,37 +412,64 @@ pub fn transaction(
   conn: Connection,
   next: fn(Connection) -> Result(t, error),
 ) -> Result(t, TransactionError(error)) {
-  use tx <- result.try(begin(conn))
+  case conn {
+    Database(config:) -> {
+      charlist.from_string(config.db)
+      |> open_
+      |> result.map_error(fn(err) {
+        err
+        |> error_to_string
+        |> TransactionError
+      })
+      |> result.try(fn(ref) {
+        let tx = Connection(ref:)
 
-  handle_crash_(fn() { rollback(tx) }, fn() { next(tx) })
-  |> result.map_error(fn(err) {
-    case rollback(tx) {
-      Ok(_tx) -> RollbackError(err)
-      Error(err) -> err
+        use ref <- result.try(begin(ref))
+
+        let res =
+          handle_crash_(fn() { rollback(ref) }, fn() { next(tx) })
+          |> result.map_error(fn(err) {
+            case rollback(ref) {
+              Ok(_tx) -> RollbackError(err)
+              Error(err) -> err
+            }
+          })
+          |> result.try(fn(res) { commit(ref) |> result.replace(res) })
+
+        let _ = close_(ref)
+
+        res
+      })
     }
-  })
-  |> result.try(fn(res) { commit(tx) |> result.replace(res) })
+    Connection(ref:) -> {
+      use ref <- result.try(begin(ref))
+
+      handle_crash_(fn() { rollback(ref) }, fn() { next(conn) })
+      |> result.map_error(fn(err) {
+        case rollback(ref) {
+          Ok(_tx) -> RollbackError(err)
+          Error(err) -> err
+        }
+      })
+      |> result.try(fn(res) { commit(ref) |> result.replace(res) })
+    }
+  }
 }
 
-fn begin(conn: Connection) -> Result(Connection, TransactionError(error)) {
-  exec("BEGIN", on: conn)
+fn begin(ref: Reference) -> Result(Reference, TransactionError(error)) {
+  exec_(ref, "BEGIN")
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
-  |> result.map(fn(_) { Connection(conn.ref) })
 }
 
-fn commit(conn: Connection) -> Result(Connection, TransactionError(error)) {
-  exec("COMMIT", on: conn)
+fn commit(ref: Reference) -> Result(Reference, TransactionError(error)) {
+  exec_(ref, "COMMIT")
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
-  |> result.map(fn(_) { Connection(conn.ref) })
 }
 
-fn rollback(conn: Connection) -> Result(Connection, TransactionError(error)) {
-  exec("ROLLBACK", on: conn)
+fn rollback(ref: Reference) -> Result(Reference, TransactionError(error)) {
+  exec_(ref, "ROLLBACK")
   |> result.map_error(fn(err) { error_to_string(err) |> TransactionError })
-  |> result.map(fn(_) { Connection(conn.ref) })
 }
-
-// Error codes
 
 /// SQLite result codes. Includes both primary codes (e.g. `Busy`, `Constraint`)
 /// and extended codes (e.g. `BusyTimeout`, `ConstraintUnique`).

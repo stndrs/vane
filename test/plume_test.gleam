@@ -232,15 +232,15 @@ pub fn execute_test() {
 
   let assert Ok(_) =
     "create table users (id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL);"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "insert into users (id, name, email) values (1, 'glia', 'glia@glia.dev')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "insert into users (id, name, email) values (2, 'todd', 'todd@glia.dev')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(queried) =
     "SELECT email, id FROM users;"
@@ -257,9 +257,10 @@ pub fn execute_test() {
 
 pub fn query_test() {
   use conn <- connect()
-  let assert Ok(_) = plume.exec("create table users (name text)", conn)
+  let assert Ok(_) = plume.execute("create table users (name text)", conn)
 
-  let assert Ok(1) = plume.exec("insert into users (name) values ('Tim')", conn)
+  let assert Ok(1) =
+    plume.execute("insert into users (name) values ('Tim')", conn)
 
   let assert Ok(queried) =
     "select name from users"
@@ -272,7 +273,7 @@ pub fn transaction_commit_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.exec(
+    plume.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
@@ -293,7 +294,7 @@ pub fn transaction_error_rollback_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.exec(
+    plume.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
@@ -314,7 +315,7 @@ pub fn transaction_panic_rollback_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.exec(
+    plume.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
@@ -338,7 +339,7 @@ pub fn syntax_error_test() {
 
   let assert Error(plume.DbError(code, msg, detail, offset)) =
     "SELEKT * FROM non_existent_table"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert plume.GenericError == code
   assert "near \"SELEKT\": syntax error" == msg
@@ -351,15 +352,15 @@ pub fn constraint_error_primary_key_test() {
 
   let assert Ok(0) =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO users (id, name) VALUES (1, 'First User')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Error(plume.DbError(code, msg, detail, _offset)) =
     "INSERT INTO users (id, name) VALUES (1, 'Duplicate User')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert plume.ConstraintPrimarykey == code
   assert "UNIQUE constraint failed: users.id" == msg
@@ -371,11 +372,11 @@ pub fn constraint_error_not_null_test() {
 
   let assert Ok(_) =
     "CREATE TABLE required (id INTEGER, name TEXT NOT NULL)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Error(plume.DbError(code, msg, detail, _offset)) =
     "INSERT INTO required (id) VALUES (1)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert plume.ConstraintNotnull == code
   assert "NOT NULL constraint failed: required.name" == msg
@@ -387,21 +388,21 @@ pub fn transaction_rollback_test() {
 
   let assert Ok(_) =
     "CREATE TABLE tx_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO tx_test (id, name) VALUES (1, 'Before')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Error(plume.RollbackError(msg)) =
     plume.transaction(conn, fn(tx) {
       let assert Ok(_) =
         "INSERT INTO tx_test (id, name) VALUES (2, 'Transaction')"
-        |> plume.exec(tx)
+        |> plume.execute(tx)
 
       let error =
         "INSERT INTO tx_test (id, name) VALUES (1, 'Duplicate')"
-        |> plume.exec(tx)
+        |> plume.execute(tx)
 
       case error {
         Error(_) -> Error("Expected error")
@@ -450,7 +451,7 @@ pub fn date_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE date_test (id INTEGER PRIMARY KEY AUTOINCREMENT, date_col TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let dates = [
     calendar.Date(year: 2025, month: calendar.April, day: 19),
@@ -496,7 +497,7 @@ pub fn duration_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE duration_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur_col INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let durations = [
     // 1 minute
@@ -560,7 +561,7 @@ pub fn time_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE time_test (id INTEGER PRIMARY KEY AUTOINCREMENT, time_col INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let times = [
     // Midnight
@@ -615,7 +616,7 @@ pub fn timestamp_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE timestamp_test (id INTEGER PRIMARY KEY AUTOINCREMENT, ts_col TIMESTAMP)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let timestamps = [
     // 2025-04-19 20:30:00 UTC
@@ -674,7 +675,7 @@ pub fn null_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE null_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO null_test (val) VALUES (?)"
@@ -721,7 +722,7 @@ pub fn bool_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bool_test (id INTEGER PRIMARY KEY AUTOINCREMENT, flag INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let values = [True, False, True, False]
 
@@ -767,7 +768,7 @@ pub fn float_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE float_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val REAL)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let floats = [0.0, 1.5, -42.195, 3.14159265358979, 1.0e10]
 
@@ -813,7 +814,7 @@ pub fn bytea_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bytea_test (id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let blobs = [
     <<>>,
@@ -863,7 +864,7 @@ pub fn datetime_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE datetime_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dt_col TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let datetimes = [
     // Simple date + time
@@ -913,7 +914,7 @@ pub fn empty_result_set_test() {
 
   let assert Ok(_) =
     "CREATE TABLE empty_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(queried) =
     plume.query("SELECT id, name FROM empty_test", [], conn)
@@ -930,7 +931,7 @@ pub fn multiple_mixed_params_test() {
 
   let assert Ok(_) =
     "CREATE TABLE mixed_test (id INTEGER, name TEXT, score REAL, data BLOB, active INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO mixed_test (id, name, score, data, active) VALUES (?, ?, ?, ?, ?)"
@@ -992,7 +993,7 @@ pub fn empty_string_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE string_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO string_test (val) VALUES (?)"
@@ -1016,7 +1017,7 @@ pub fn error_to_string_test() {
 
   let assert Error(err) =
     "SELEKT * FROM nope"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let msg = plume.error_to_string(err)
 
@@ -1029,7 +1030,7 @@ pub fn use_after_close_crashes_test() {
   let assert Ok(conn) = plume.open(config)
   let assert Ok(Nil) = plume.close(conn)
 
-  let result = plume.exec("SELECT 1", conn)
+  let result = plume.execute("SELECT 1", conn)
   let assert Error(plume.ConnectionUnavailable) = result
 }
 
@@ -1051,7 +1052,8 @@ pub fn use_after_close_returns_connection_unavailable_test() {
   let assert Ok(conn) = plume.open(config)
   let assert Ok(Nil) = plume.close(conn)
 
-  let assert Error(plume.ConnectionUnavailable) = plume.exec("SELECT 1", conn)
+  let assert Error(plume.ConnectionUnavailable) =
+    plume.execute("SELECT 1", conn)
 }
 
 pub fn query_after_close_returns_connection_unavailable_test() {
@@ -1082,7 +1084,7 @@ pub fn int_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE int_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let ints = [0, 1, -1, 42, -42, 2_147_483_647, -2_147_483_648]
 
@@ -1111,7 +1113,7 @@ pub fn int_large_values_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bigint_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let large_ints = [
     9_223_372_036_854_775_807,
@@ -1155,7 +1157,7 @@ pub fn text_unicode_test() {
 
   let assert Ok(_) =
     "CREATE TABLE unicode_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let strings = [
     "Hello 🌍🎉",
@@ -1188,7 +1190,7 @@ pub fn text_special_chars_test() {
 
   let assert Ok(_) =
     "CREATE TABLE special_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let strings = [
     "'; DROP TABLE users; --",
@@ -1223,11 +1225,6 @@ pub fn error_to_string_connection_failed_test() {
 pub fn error_to_string_connection_unavailable_test() {
   let msg = plume.error_to_string(plume.ConnectionUnavailable)
   assert msg == "[plume.ConnectionUnavailable]"
-}
-
-pub fn error_to_string_plume_error_test() {
-  let msg = plume.error_to_string(plume.PlumeError("something went wrong"))
-  assert msg == "[plume.PlumeError] message: something went wrong"
 }
 
 pub fn error_to_string_db_error_format_test() {
@@ -1342,15 +1339,15 @@ pub fn exec_ddl_returns_zero_test() {
 
   let assert Ok(0) =
     "CREATE TABLE ddl_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(0) =
     "ALTER TABLE ddl_test ADD COLUMN email TEXT"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(0) =
     "DROP TABLE ddl_test"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 }
 
 pub fn exec_multi_row_changes_test() {
@@ -1358,19 +1355,22 @@ pub fn exec_multi_row_changes_test() {
 
   let assert Ok(0) =
     "CREATE TABLE multi_test (id INTEGER PRIMARY KEY, val TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
-  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (1, 'a')", conn)
-  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (2, 'b')", conn)
-  let assert Ok(1) = plume.exec("INSERT INTO multi_test VALUES (3, 'c')", conn)
+  let assert Ok(1) =
+    plume.execute("INSERT INTO multi_test VALUES (1, 'a')", conn)
+  let assert Ok(1) =
+    plume.execute("INSERT INTO multi_test VALUES (2, 'b')", conn)
+  let assert Ok(1) =
+    plume.execute("INSERT INTO multi_test VALUES (3, 'c')", conn)
 
   let assert Ok(3) =
     "UPDATE multi_test SET val = 'updated'"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(3) =
     "DELETE FROM multi_test"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 }
 
 pub fn time_milliseconds_under_10_test() {
@@ -1434,7 +1434,7 @@ pub fn duration_zero_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dur_zero_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let dur = duration.seconds(0)
 
@@ -1459,7 +1459,7 @@ pub fn duration_nanoseconds_only_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dur_ns_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let durations = [
     duration.nanoseconds(1),
@@ -1490,7 +1490,7 @@ pub fn date_single_digit_day_and_month_test() {
 
   let assert Ok(_) =
     "CREATE TABLE date_pad_test (id INTEGER PRIMARY KEY AUTOINCREMENT, d TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let dates = [
     calendar.Date(2025, calendar.January, 1),
@@ -1530,11 +1530,11 @@ pub fn query_parameterized_empty_result_test() {
 
   let assert Ok(0) =
     "CREATE TABLE param_empty (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO param_empty VALUES (1, 'exists')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(queried) =
     plume.query(
@@ -1553,11 +1553,11 @@ pub fn query_expression_fields_test() {
 
   let assert Ok(0) =
     "CREATE TABLE expr_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO expr_test VALUES (1, 'test')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(queried) =
     plume.query("SELECT 1+1, COUNT(*), name AS alias FROM expr_test", [], conn)
@@ -1571,15 +1571,15 @@ pub fn constraint_unique_error_test() {
 
   let assert Ok(0) =
     "CREATE TABLE uniq_test (id INTEGER PRIMARY KEY, email TEXT UNIQUE)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO uniq_test VALUES (1, 'a@b.com')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Error(plume.DbError(code, _msg, _detail, _offset)) =
     "INSERT INTO uniq_test VALUES (2, 'a@b.com')"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert plume.ConstraintUnique == code
 }
@@ -1589,13 +1589,13 @@ pub fn syntax_error_offset_test() {
 
   let assert Error(plume.DbError(_, _, _, offset)) =
     "SELEKT 1"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert offset == 0
 
   let assert Error(plume.DbError(_, _, _, offset2)) =
     "SELECT 1 FORM users"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   assert offset2 > 0
 }
@@ -1605,7 +1605,7 @@ pub fn datetime_millisecond_branches_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dt_ms_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dt TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let datetimes = [
     #(
@@ -1661,7 +1661,7 @@ pub fn timestamp_negative_test() {
 
   let assert Ok(_) =
     "CREATE TABLE ts_neg_test (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let timestamps = [
     timestamp.from_unix_seconds(-1),
@@ -1691,7 +1691,7 @@ pub fn query_constraint_error_test() {
 
   let assert Ok(0) =
     "CREATE TABLE q_uniq (id INTEGER PRIMARY KEY, name TEXT UNIQUE)"
-    |> plume.exec(conn)
+    |> plume.execute(conn)
 
   let assert Ok(_) =
     plume.query(
