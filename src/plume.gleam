@@ -114,6 +114,48 @@ pub type Value {
   Duration(duration.Duration)
 }
 
+pub const null = Null
+
+pub fn bool(value: Bool) -> Value {
+  Bool(value)
+}
+
+pub fn int(value: Int) -> Value {
+  Int(value)
+}
+
+pub fn float(value: Float) -> Value {
+  Float(value)
+}
+
+pub fn text(value: String) -> Value {
+  Text(value)
+}
+
+pub fn bytea(value: BitArray) -> Value {
+  Bytea(value)
+}
+
+pub fn time(time: calendar.TimeOfDay) -> Value {
+  Time(time)
+}
+
+pub fn date(date: calendar.Date) -> Value {
+  Date(date)
+}
+
+pub fn datetime(date: calendar.Date, time: calendar.TimeOfDay) -> Value {
+  Datetime(date, time)
+}
+
+pub fn timestamp(timestamp: timestamp.Timestamp) -> Value {
+  Timestamp(timestamp)
+}
+
+pub fn duration(duration: duration.Duration) -> Value {
+  Duration(duration)
+}
+
 /// The result of a `query` call. Contains the number of rows returned, the
 /// column names, and the rows themselves as `Dynamic` values for decoding.
 pub type Queried {
