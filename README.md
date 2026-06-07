@@ -2,7 +2,6 @@
 
 [![Package Version](https://img.shields.io/hexpm/v/vane)](https://hex.pm/packages/vane)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/vane/)
-![LLM Usage](https://img.shields.io/badge/LLM%20Usage-Human%20Driven%20with%20LLM%20Assistance-green)
 
 A SQLite driver for Gleam on the BEAM. Wraps [esqlite](https://hex.pm/packages/esqlite) and provides typed parameter binding, automatic transactions, and first-class support for `gleam/time` types.
 
