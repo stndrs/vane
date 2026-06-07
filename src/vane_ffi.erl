@@ -1,4 +1,4 @@
--module(plume_ffi).
+-module(vane_ffi).
 
 -export([
   bind_null/2,
@@ -67,7 +67,7 @@ status() ->
 code_to_error(Connection, Code) when is_integer(Code) ->
   try
     #{errmsg := Message, error_offset := Offset, errstr := ErrorString} = esqlite3_nif:error_info(Connection),
-    Code1 = plume:code_from_int(Code),
+    Code1 = vane:code_from_int(Code),
     {error, {db_error, Code1, Message, ErrorString, Offset}}
   catch _:_
     -> {error, connection_unavailable}

@@ -34,7 +34,7 @@ pub type Stats {
 }
 
 /// Returns global SQLite memory and resource usage statistics.
-@external(erlang, "plume_ffi", "status")
+@external(erlang, "vane_ffi", "status")
 pub fn status() -> StatusInfo
 
 /// Configuration for opening a database connection.
@@ -50,7 +50,7 @@ pub fn config(db: String) -> Config {
 
 /// Returns a `Connection`. This function does not open a connection to
 /// the configured sqlite database. Passing the `Connection` record
-/// to a query function (e.g. `plume.query`) will open the connection,
+/// to a query function (e.g. `vane.query`) will open the connection,
 /// perform the query, and then close the connection.
 pub fn new(config: Config) -> Connection {
   Database(config:)
@@ -61,7 +61,7 @@ pub fn new(config: Config) -> Connection {
 pub fn with_connection(
   config: Config,
   next: fn(Connection) -> t,
-) -> Result(t, PlumeError) {
+) -> Result(t, VaneError) {
   charlist.from_string(config.db)
   |> open_
   |> result.map(fn(ref) {
@@ -73,8 +73,8 @@ pub fn with_connection(
   })
 }
 
-/// Errors returned by plume operations.
-pub type PlumeError {
+/// Errors returned by vane operations.
+pub type VaneError {
   /// The database connection could not be opened.
   ConnectionFailed
   /// The connection was already closed.
@@ -84,12 +84,12 @@ pub type PlumeError {
 }
 
 /// Formats a `PlumeError` as a human-readable string suitable for logging.
-pub fn error_to_string(err: PlumeError) -> String {
+pub fn error_to_string(err: VaneError) -> String {
   case err {
-    ConnectionFailed -> "[plume.ConnectionFailed]"
-    ConnectionUnavailable -> "[plume.ConnectionUnavailable]"
+    ConnectionFailed -> "[vane.ConnectionFailed]"
+    ConnectionUnavailable -> "[vane.ConnectionUnavailable]"
     DbError(code:, message:, detail:, offset: _) -> {
-      "[plume.DbError] code: "
+      "[vane.DbError] code: "
       <> code_to_string(code)
       <> ", message: "
       <> message
@@ -163,7 +163,7 @@ pub type Queried {
 }
 
 /// Opens a new connection to the database specified in `conf`.
-pub fn open(conf: Config) -> Result(Connection, PlumeError) {
+pub fn open(conf: Config) -> Result(Connection, VaneError) {
   charlist.from_string(conf.db)
   |> open_
   |> result.map(Connection)
@@ -180,8 +180,8 @@ pub fn close(conn: Connection) -> Result(Nil, Nil) {
 
 fn with_single_connection(
   conn: Connection,
-  next: fn(Reference) -> Result(t, PlumeError),
-) -> Result(t, PlumeError) {
+  next: fn(Reference) -> Result(t, VaneError),
+) -> Result(t, VaneError) {
   case conn {
     Database(config:) -> {
       charlist.from_string(config.db)
@@ -204,7 +204,7 @@ pub fn query(
   sql: String,
   values: List(Value),
   conn: Connection,
-) -> Result(Queried, PlumeError) {
+) -> Result(Queried, VaneError) {
   use ref <- with_single_connection(conn)
   use stmt <- result.try(prepare(sql, ref, []))
 
@@ -227,7 +227,7 @@ fn prepare(
   sql: String,
   ref: Reference,
   flags: List(PrepareFlag),
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   prepare_flag_value(flags)
   |> prepare_(ref, sql, _)
 }
@@ -250,7 +250,7 @@ fn fetch_rows(
   stmt: Reference,
   args: List(Value),
   ref: Reference,
-) -> Result(List(Dynamic), PlumeError) {
+) -> Result(List(Dynamic), VaneError) {
   case args {
     [] -> fetchall_(stmt, ref)
     vals -> bind(stmt, vals) |> result.try(fetchall_(_, ref))
@@ -260,7 +260,7 @@ fn fetch_rows(
 fn bind(
   statement: Reference,
   args: List(Value),
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   args
   |> list.index_map(fn(arg, idx) { #(idx, arg) })
   |> list.try_fold(from: statement, with: fn(stmt, arg) {
@@ -332,7 +332,7 @@ fn bind_bool(
   stmt: Reference,
   idx: Int,
   bool: Bool,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   case bool {
     True -> 1
     False -> 0
@@ -344,7 +344,7 @@ fn bind_date(
   stmt: Reference,
   idx: Int,
   date: calendar.Date,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   date_to_string(date)
   |> bind_text(stmt, idx, _)
 }
@@ -353,7 +353,7 @@ fn bind_time(
   stmt: Reference,
   idx: Int,
   tod: calendar.TimeOfDay,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   time_to_string(tod)
   |> bind_text(stmt, idx, _)
 }
@@ -363,7 +363,7 @@ fn bind_datetime(
   idx: Int,
   date: calendar.Date,
   tod: calendar.TimeOfDay,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   datetime_to_string(date, tod)
   |> bind_text(stmt, idx, _)
 }
@@ -372,7 +372,7 @@ fn bind_timestamp(
   stmt: Reference,
   idx: Int,
   ts: timestamp.Timestamp,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   timestamp.to_rfc3339(ts, calendar.utc_offset)
   |> bind_text(stmt, idx, _)
 }
@@ -381,14 +381,14 @@ fn bind_duration(
   stmt: Reference,
   idx: Int,
   dur: duration.Duration,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   let #(sec, nsec) = duration.to_seconds_and_nanoseconds(dur)
   let nsec = { sec * 1_000_000_000 } + nsec
 
   bind_int(stmt, idx, nsec)
 }
 
-fn bind_null(stmt: Reference, idx: Int) -> Result(Reference, PlumeError) {
+fn bind_null(stmt: Reference, idx: Int) -> Result(Reference, VaneError) {
   bind_null_(stmt, idx)
   |> result.replace(stmt)
 }
@@ -397,7 +397,7 @@ fn bind_text(
   stmt: Reference,
   idx: Int,
   val: String,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   bind_text_(stmt, idx, val)
   |> result.replace(stmt)
 }
@@ -406,7 +406,7 @@ fn bind_int(
   stmt: Reference,
   idx: Int,
   val: Int,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   bind_int_(stmt, idx, val)
   |> result.replace(stmt)
 }
@@ -415,7 +415,7 @@ fn bind_double(
   stmt: Reference,
   idx: Int,
   val: Float,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   bind_double_(stmt, idx, val)
   |> result.replace(stmt)
 }
@@ -424,13 +424,13 @@ fn bind_blob(
   stmt: Reference,
   idx: Int,
   val: BitArray,
-) -> Result(Reference, PlumeError) {
+) -> Result(Reference, VaneError) {
   bind_blob_(stmt, idx, val)
   |> result.replace(stmt)
 }
 
 /// Executes a SQL statement. Returns the number of rows changed.
-pub fn execute(sql: String, on conn: Connection) -> Result(Int, PlumeError) {
+pub fn execute(sql: String, on conn: Connection) -> Result(Int, VaneError) {
   use ref <- with_single_connection(conn)
 
   exec_(ref, sql)
@@ -780,66 +780,62 @@ pub fn code_from_int(code: Int) -> Code {
 
 // FFI
 
-@external(erlang, "plume_ffi", "handle_crash")
+@external(erlang, "vane_ffi", "handle_crash")
 fn handle_crash_(handler: fn() -> a, next: fn() -> b) -> b
 
-@external(erlang, "plume_ffi", "open")
-fn open_(a: Charlist) -> Result(Reference, PlumeError)
+@external(erlang, "vane_ffi", "open")
+fn open_(a: Charlist) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "close")
+@external(erlang, "vane_ffi", "close")
 fn close_(a: Reference) -> Result(Nil, Nil)
 
 // Bind
 
-@external(erlang, "plume_ffi", "bind_null")
-fn bind_null_(s: Reference, col: Int) -> Result(Reference, PlumeError)
+@external(erlang, "vane_ffi", "bind_null")
+fn bind_null_(s: Reference, col: Int) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "bind_int")
-fn bind_int_(
-  s: Reference,
-  col: Int,
-  value: Int,
-) -> Result(Reference, PlumeError)
+@external(erlang, "vane_ffi", "bind_int")
+fn bind_int_(s: Reference, col: Int, value: Int) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "bind_text")
+@external(erlang, "vane_ffi", "bind_text")
 fn bind_text_(
   s: Reference,
   col: Int,
   value: String,
-) -> Result(Reference, PlumeError)
+) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "bind_double")
+@external(erlang, "vane_ffi", "bind_double")
 fn bind_double_(
   s: Reference,
   col: Int,
   value: Float,
-) -> Result(Reference, PlumeError)
+) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "bind_blob")
+@external(erlang, "vane_ffi", "bind_blob")
 fn bind_blob_(
   s: Reference,
   col: Int,
   value: BitArray,
-) -> Result(Reference, PlumeError)
+) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "prepare")
+@external(erlang, "vane_ffi", "prepare")
 fn prepare_(
   conn: Reference,
   sql: String,
   flags: Int,
-) -> Result(Reference, PlumeError)
+) -> Result(Reference, VaneError)
 
-@external(erlang, "plume_ffi", "fetchall")
+@external(erlang, "vane_ffi", "fetchall")
 fn fetchall_(
   statement: Reference,
   conn: Reference,
-) -> Result(List(Dynamic), PlumeError)
+) -> Result(List(Dynamic), VaneError)
 
 @external(erlang, "esqlite3_nif", "column_names")
 fn column_names_(statement: Reference) -> List(String)
 
-@external(erlang, "plume_ffi", "exec")
-fn exec_(conn: Reference, sql: String) -> Result(Reference, PlumeError)
+@external(erlang, "vane_ffi", "exec")
+fn exec_(conn: Reference, sql: String) -> Result(Reference, VaneError)
 
 @external(erlang, "esqlite3_nif", "changes")
 fn changes_(conn: Reference) -> Int

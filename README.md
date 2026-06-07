@@ -1,7 +1,7 @@
-# plume
+# vane
 
-[![Package Version](https://img.shields.io/hexpm/v/plume)](https://hex.pm/packages/plume)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/plume/)
+[![Package Version](https://img.shields.io/hexpm/v/vane)](https://hex.pm/packages/vane)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/vane/)
 ![LLM Usage](https://img.shields.io/badge/LLM%20Usage-Human%20Driven%20with%20LLM%20Assistance-green)
 
 A SQLite driver for Gleam on the BEAM. Wraps [esqlite](https://hex.pm/packages/esqlite) and provides typed parameter binding, automatic transactions, and first-class support for `gleam/time` types.
@@ -9,7 +9,7 @@ A SQLite driver for Gleam on the BEAM. Wraps [esqlite](https://hex.pm/packages/e
 ## Installation
 
 ```sh
-gleam add plume@1
+gleam add vane@1
 ```
 
 ## Quick start
@@ -18,24 +18,24 @@ gleam add plume@1
 import gleam/dynamic/decode
 import gleam/io
 import gleam/list
-import plume
+import vane
 
 pub fn main() {
-  let assert Ok(conn) = plume.config(":memory:") |> plume.open
+  let assert Ok(conn) = vane.config(":memory:") |> vane.open
 
   let assert Ok(_) =
     "CREATE TABLE cats (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, age INTEGER)"
-    |> plume.exec(conn)
+    |> vane.exec(conn)
 
   let assert Ok(_) =
-    plume.query(
+    vane.query(
       "INSERT INTO cats (name, age) VALUES (?, ?)",
-      [plume.Text("Mochi"), plume.Int(3)],
+      [vane.Text("Mochi"), vane.Int(3)],
       conn,
     )
 
   let assert Ok(queried) =
-    plume.query("SELECT name, age FROM cats", [], conn)
+    vane.query("SELECT name, age FROM cats", [], conn)
 
   let assert Ok(cats) = {
     use row <- list.try_map(queried.rows)
@@ -49,7 +49,7 @@ pub fn main() {
   io.debug(cats)
   // [#("Mochi", 3)]
 
-  let assert Ok(_) = plume.close(conn)
+  let assert Ok(_) = vane.close(conn)
 }
 ```
 
@@ -58,13 +58,13 @@ pub fn main() {
 Open a connection with `config` and `open`. The database path can be a file path or `":memory:"` for an in-memory database.
 
 ```gleam
-let assert Ok(conn) = plume.config("my_app.db") |> plume.open
+let assert Ok(conn) = vane.config("my_app.db") |> vane.open
 ```
 
 Close it when you're done:
 
 ```gleam
-let assert Ok(Nil) = plume.close(conn)
+let assert Ok(Nil) = vane.close(conn)
 ```
 
 ## Queries
@@ -75,15 +75,15 @@ let assert Ok(Nil) = plume.close(conn)
 // exec returns the number of changed rows
 let assert Ok(0) =
   "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"
-  |> plume.exec(conn)
+  |> vane.exec(conn)
 
 let assert Ok(1) =
   "INSERT INTO users VALUES (1, 'alice')"
-  |> plume.exec(conn)
+  |> vane.exec(conn)
 
 // query returns a Queried record with count, fields, and rows
 let assert Ok(queried) =
-  plume.query("SELECT id, name FROM users WHERE id = ?", [plume.Int(1)], conn)
+  vane.query("SELECT id, name FROM users WHERE id = ?", [vane.Int(1)], conn)
 
 queried.count   // 1
 queried.fields  // ["id", "name"]
@@ -127,10 +127,10 @@ All parameters are passed as a `List(Value)`. Values are bound by position using
 
 ```gleam
 let assert Ok(result) =
-  plume.transaction(conn, fn(tx) {
+  vane.transaction(conn, fn(tx) {
     let assert Ok(_) =
       "INSERT INTO users VALUES (2, 'bob')"
-      |> plume.exec(tx)
+      |> vane.exec(tx)
 
     Ok("done")
   })
@@ -140,19 +140,19 @@ If the callback returns `Error`, the transaction is rolled back and the error is
 
 ## Errors
 
-All fallible operations return `Result(value, PlumeError)`:
+All fallible operations return `Result(value, VaneError)`:
 
 - `ConnectionFailed` -- could not open the database
 - `ConnectionUnavailable` -- connection was already closed
 - `DbError(code, message, detail, offset)` -- SQLite returned an error with a specific error code, message, extended detail, and byte offset into the SQL
-- `PlumeError(message)` -- other errors
+- `VaneError(message)` -- other errors
 
-Use `error_to_string` to format any `PlumeError` for logging:
+Use `error_to_string` to format any `VaneError` for logging:
 
 ```gleam
-case plume.exec("bad sql", conn) {
+case vane.exec("bad sql", conn) {
   Ok(n) -> io.debug(n)
-  Error(err) -> io.println(plume.error_to_string(err))
+  Error(err) -> io.println(vane.error_to_string(err))
 }
 ```
 
@@ -161,7 +161,7 @@ case plume.exec("bad sql", conn) {
 `status` returns global SQLite memory statistics:
 
 ```gleam
-let info = plume.status()
+let info = vane.status()
 info.memory_used      // Stats(used: Int, highwater: Int)
 info.pagecache_used   // Stats(used: Int, highwater: Int)
 info.malloc_count     // Stats(used: Int, highwater: Int)

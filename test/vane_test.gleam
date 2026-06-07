@@ -9,7 +9,7 @@ import gleam/time/calendar
 import gleam/time/duration
 import gleam/time/timestamp
 import gleeunit
-import plume
+import vane
 
 pub fn main() {
   gleeunit.main()
@@ -23,17 +23,17 @@ const default_time = calendar.TimeOfDay(0, 0, 0, 0)
 
 // Helpers
 
-fn connect(next: fn(plume.Connection) -> a) -> a {
-  let config = plume.config(":memory:")
+fn connect(next: fn(vane.Connection) -> a) -> a {
+  let config = vane.config(":memory:")
 
-  let assert Ok(conn) = plume.open(config)
+  let assert Ok(conn) = vane.open(config)
 
   next(conn)
 }
 
-fn insert_user(conn: plume.Connection, name: String) -> Int {
+fn insert_user(conn: vane.Connection, name: String) -> Int {
   let sql = "INSERT INTO users (name) VALUES (?) RETURNING id"
-  let assert Ok(queried) = plume.query(sql, [plume.Text(name)], conn)
+  let assert Ok(queried) = vane.query(sql, [vane.Text(name)], conn)
 
   let assert 1 = queried.count
   let assert ["id"] = queried.fields
@@ -208,7 +208,7 @@ fn decode_datetime() -> Decoder(#(calendar.Date, calendar.TimeOfDay)) {
 // Tests
 
 pub fn config_test() {
-  let conf = plume.config(":memory:")
+  let conf = vane.config(":memory:")
 
   assert conf.db == ":memory:"
 }
@@ -216,15 +216,15 @@ pub fn config_test() {
 // Status tests
 
 pub fn status_test() {
-  let assert plume.StatusInfo(
-    memory_used: plume.Stats(used: 0, highwater: 0),
-    pagecache_used: plume.Stats(used: 0, highwater: 0),
-    pagecache_overflow: plume.Stats(used: 0, highwater: 0),
-    malloc_size: plume.Stats(used: 0, highwater: 0),
-    parser_stack: plume.Stats(used: 0, highwater: 0),
-    pagecache_size: plume.Stats(used: 0, highwater: 0),
-    malloc_count: plume.Stats(used: 0, highwater: 0),
-  ) = plume.status()
+  let assert vane.StatusInfo(
+    memory_used: vane.Stats(used: 0, highwater: 0),
+    pagecache_used: vane.Stats(used: 0, highwater: 0),
+    pagecache_overflow: vane.Stats(used: 0, highwater: 0),
+    malloc_size: vane.Stats(used: 0, highwater: 0),
+    parser_stack: vane.Stats(used: 0, highwater: 0),
+    pagecache_size: vane.Stats(used: 0, highwater: 0),
+    malloc_count: vane.Stats(used: 0, highwater: 0),
+  ) = vane.status()
 }
 
 pub fn execute_test() {
@@ -232,19 +232,19 @@ pub fn execute_test() {
 
   let assert Ok(_) =
     "create table users (id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL);"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "insert into users (id, name, email) values (1, 'glia', 'glia@glia.dev')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "insert into users (id, name, email) values (2, 'todd', 'todd@glia.dev')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(queried) =
     "SELECT email, id FROM users;"
-    |> plume.query([], conn)
+    |> vane.query([], conn)
 
   let assert 2 = queried.count
   let assert ["email", "id"] = queried.fields
@@ -257,14 +257,14 @@ pub fn execute_test() {
 
 pub fn query_test() {
   use conn <- connect()
-  let assert Ok(_) = plume.execute("create table users (name text)", conn)
+  let assert Ok(_) = vane.execute("create table users (name text)", conn)
 
   let assert Ok(1) =
-    plume.execute("insert into users (name) values ('Tim')", conn)
+    vane.execute("insert into users (name) values ('Tim')", conn)
 
   let assert Ok(queried) =
     "select name from users"
-    |> plume.query([], conn)
+    |> vane.query([], conn)
 
   let assert 1 = queried.count
 }
@@ -273,19 +273,19 @@ pub fn transaction_commit_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.execute(
+    vane.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
 
   let assert Ok(#(1, 2)) =
-    plume.transaction(conn, fn(tx) {
+    vane.transaction(conn, fn(tx) {
       let id1 = insert_user(tx, "'Tim'")
       let id2 = insert_user(tx, "'Tom'")
       Ok(#(id1, id2))
     })
 
-  let assert Ok(queried) = plume.query("SELECT id FROM users", [], conn)
+  let assert Ok(queried) = vane.query("SELECT id FROM users", [], conn)
 
   let assert 2 = queried.count
 }
@@ -294,19 +294,19 @@ pub fn transaction_error_rollback_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.execute(
+    vane.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
 
-  let assert Error(plume.RollbackError("Intentional error")) =
-    plume.transaction(conn, fn(tx) {
+  let assert Error(vane.RollbackError("Intentional error")) =
+    vane.transaction(conn, fn(tx) {
       let _id1 = insert_user(tx, "'Tim'")
       let _id2 = insert_user(tx, "'Tom'")
       Error("Intentional error")
     })
 
-  let assert Ok(queried) = plume.query("SELECT COUNT(*) FROM users", [], conn)
+  let assert Ok(queried) = vane.query("SELECT COUNT(*) FROM users", [], conn)
 
   let assert 1 = queried.count
 }
@@ -315,21 +315,21 @@ pub fn transaction_panic_rollback_test() {
   use conn <- connect()
 
   let assert Ok(_) =
-    plume.execute(
+    vane.execute(
       "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
       conn,
     )
 
   let _ =
     with_rescue(fn() {
-      plume.transaction(conn, fn(tx) {
+      vane.transaction(conn, fn(tx) {
         let _id1 = insert_user(tx, "'Tim'")
         let _id2 = insert_user(tx, "'Tom'")
         panic as "Intentional panic"
       })
     })
 
-  let assert Ok(queried) = plume.query("SELECT COUNT(*) FROM users", [], conn)
+  let assert Ok(queried) = vane.query("SELECT COUNT(*) FROM users", [], conn)
 
   let assert 1 = queried.count
 }
@@ -337,11 +337,11 @@ pub fn transaction_panic_rollback_test() {
 pub fn syntax_error_test() {
   use conn <- connect()
 
-  let assert Error(plume.DbError(code, msg, detail, offset)) =
+  let assert Error(vane.DbError(code, msg, detail, offset)) =
     "SELEKT * FROM non_existent_table"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  assert plume.GenericError == code
+  assert vane.GenericError == code
   assert "near \"SELEKT\": syntax error" == msg
   assert "SQL logic error" == detail
   assert offset >= 0
@@ -352,17 +352,17 @@ pub fn constraint_error_primary_key_test() {
 
   let assert Ok(0) =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO users (id, name) VALUES (1, 'First User')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  let assert Error(plume.DbError(code, msg, detail, _offset)) =
+  let assert Error(vane.DbError(code, msg, detail, _offset)) =
     "INSERT INTO users (id, name) VALUES (1, 'Duplicate User')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  assert plume.ConstraintPrimarykey == code
+  assert vane.ConstraintPrimarykey == code
   assert "UNIQUE constraint failed: users.id" == msg
   assert "constraint failed" == detail
 }
@@ -372,13 +372,13 @@ pub fn constraint_error_not_null_test() {
 
   let assert Ok(_) =
     "CREATE TABLE required (id INTEGER, name TEXT NOT NULL)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  let assert Error(plume.DbError(code, msg, detail, _offset)) =
+  let assert Error(vane.DbError(code, msg, detail, _offset)) =
     "INSERT INTO required (id) VALUES (1)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  assert plume.ConstraintNotnull == code
+  assert vane.ConstraintNotnull == code
   assert "NOT NULL constraint failed: required.name" == msg
   assert "constraint failed" == detail
 }
@@ -388,21 +388,21 @@ pub fn transaction_rollback_test() {
 
   let assert Ok(_) =
     "CREATE TABLE tx_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO tx_test (id, name) VALUES (1, 'Before')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  let assert Error(plume.RollbackError(msg)) =
-    plume.transaction(conn, fn(tx) {
+  let assert Error(vane.RollbackError(msg)) =
+    vane.transaction(conn, fn(tx) {
       let assert Ok(_) =
         "INSERT INTO tx_test (id, name) VALUES (2, 'Transaction')"
-        |> plume.execute(tx)
+        |> vane.execute(tx)
 
       let error =
         "INSERT INTO tx_test (id, name) VALUES (1, 'Duplicate')"
-        |> plume.execute(tx)
+        |> vane.execute(tx)
 
       case error {
         Error(_) -> Error("Expected error")
@@ -414,7 +414,7 @@ pub fn transaction_rollback_test() {
 
   let assert Ok(queried) =
     "SELECT COUNT(*) FROM tx_test"
-    |> plume.query([], conn)
+    |> vane.query([], conn)
 
   let assert Ok([1]) =
     decode_rows(queried.rows, {
@@ -426,11 +426,11 @@ pub fn transaction_rollback_test() {
 pub fn table_not_exist_error_test() {
   use conn <- connect()
 
-  let assert Error(plume.DbError(code, msg, detail, _offset)) =
+  let assert Error(vane.DbError(code, msg, detail, _offset)) =
     "SELECT * FROM non_existent_table"
-    |> plume.query([], conn)
+    |> vane.query([], conn)
 
-  assert plume.GenericError == code
+  assert vane.GenericError == code
   assert msg == "no such table: non_existent_table"
   assert detail == "SQL logic error"
 }
@@ -441,7 +441,7 @@ pub fn date_bind_test() {
   use conn <- connect()
 
   let date = calendar.Date(year: 2025, month: calendar.April, day: 19)
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Date(date)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Date(date)], conn)
 
   assert 1 == queried.count
 }
@@ -451,7 +451,7 @@ pub fn date_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE date_test (id INTEGER PRIMARY KEY AUTOINCREMENT, date_col TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let dates = [
     calendar.Date(year: 2025, month: calendar.April, day: 19),
@@ -464,11 +464,11 @@ pub fn date_roundtrip_test() {
   let assert Ok(_) = {
     use date <- list.try_map(dates)
     "INSERT INTO date_test (date_col) VALUES (?) RETURNING *"
-    |> plume.query([plume.Date(date)], conn)
+    |> vane.query([vane.Date(date)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT date_col FROM date_test ORDER BY id", [], conn)
+    vane.query("SELECT date_col FROM date_test ORDER BY id", [], conn)
 
   let assert 5 = queried.count
 
@@ -487,7 +487,7 @@ pub fn duration_bind_test() {
   use conn <- connect()
 
   let dur = duration.seconds(3600)
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Duration(dur)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Duration(dur)], conn)
 
   let assert 1 = queried.count
 }
@@ -497,7 +497,7 @@ pub fn duration_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE duration_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur_col INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let durations = [
     // 1 minute
@@ -521,11 +521,11 @@ pub fn duration_roundtrip_test() {
     let insert_sql =
       "INSERT INTO duration_test (dur_col) VALUES (?) RETURNING *"
 
-    plume.query(insert_sql, [plume.Duration(dur)], conn)
+    vane.query(insert_sql, [vane.Duration(dur)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT dur_col FROM duration_test ORDER BY id", [], conn)
+    vane.query("SELECT dur_col FROM duration_test ORDER BY id", [], conn)
 
   let assert 6 = queried.count
 
@@ -551,7 +551,7 @@ pub fn time_bind_test() {
       nanoseconds: 123_456_789,
     )
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Time(time)], conn)
 
   let assert 1 = queried.count
 }
@@ -561,7 +561,7 @@ pub fn time_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE time_test (id INTEGER PRIMARY KEY AUTOINCREMENT, time_col INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let times = [
     // Midnight
@@ -580,12 +580,12 @@ pub fn time_roundtrip_test() {
     use time <- list.try_map(times)
     let insert_sql = "INSERT INTO time_test (time_col) VALUES (?) RETURNING *"
 
-    plume.query(insert_sql, [plume.Time(time)], conn)
+    vane.query(insert_sql, [vane.Time(time)], conn)
   }
 
   let sql = "SELECT time_col FROM time_test ORDER BY id"
 
-  let assert Ok(queried) = plume.query(sql, [], conn)
+  let assert Ok(queried) = vane.query(sql, [], conn)
 
   let assert 5 = queried.count
 
@@ -606,7 +606,7 @@ pub fn timestamp_bind_test() {
   // 2025-04-19 20:30:00 UTC
   let ts = timestamp.from_unix_seconds(1_713_557_400)
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Timestamp(ts)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Timestamp(ts)], conn)
 
   let assert 1 = queried.count
 }
@@ -616,7 +616,7 @@ pub fn timestamp_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE timestamp_test (id INTEGER PRIMARY KEY AUTOINCREMENT, ts_col TIMESTAMP)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let timestamps = [
     // 2025-04-19 20:30:00 UTC
@@ -637,11 +637,11 @@ pub fn timestamp_roundtrip_test() {
     use ts <- list.try_map(timestamps)
 
     "INSERT INTO timestamp_test (ts_col) VALUES (?) RETURNING *"
-    |> plume.query([plume.Timestamp(ts)], conn)
+    |> vane.query([vane.Timestamp(ts)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT ts_col FROM timestamp_test ORDER BY id", [], conn)
+    vane.query("SELECT ts_col FROM timestamp_test ORDER BY id", [], conn)
 
   let assert 6 = queried.count
 
@@ -659,7 +659,7 @@ pub fn timestamp_roundtrip_test() {
 pub fn null_bind_test() {
   use conn <- connect()
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Null], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Null], conn)
 
   let assert 1 = queried.count
 
@@ -675,18 +675,18 @@ pub fn null_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE null_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO null_test (val) VALUES (?)"
-    |> plume.query([plume.Null], conn)
+    |> vane.query([vane.Null], conn)
 
   let assert Ok(_) =
     "INSERT INTO null_test (val) VALUES (?)"
-    |> plume.query([plume.Text("not null")], conn)
+    |> vane.query([vane.Text("not null")], conn)
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM null_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM null_test ORDER BY id", [], conn)
 
   let assert 2 = queried.count
 
@@ -705,7 +705,7 @@ pub fn bool_bind_test() {
   use conn <- connect()
 
   let assert Ok(queried) =
-    plume.query("SELECT ?, ?", [plume.Bool(True), plume.Bool(False)], conn)
+    vane.query("SELECT ?, ?", [vane.Bool(True), vane.Bool(False)], conn)
 
   let assert 1 = queried.count
 
@@ -722,18 +722,18 @@ pub fn bool_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bool_test (id INTEGER PRIMARY KEY AUTOINCREMENT, flag INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let values = [True, False, True, False]
 
   let assert Ok(_) = {
     use val <- list.try_map(values)
     "INSERT INTO bool_test (flag) VALUES (?)"
-    |> plume.query([plume.Bool(val)], conn)
+    |> vane.query([vane.Bool(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT flag FROM bool_test ORDER BY id", [], conn)
+    vane.query("SELECT flag FROM bool_test ORDER BY id", [], conn)
 
   let assert 4 = queried.count
 
@@ -752,7 +752,7 @@ pub fn bool_roundtrip_test() {
 pub fn float_bind_test() {
   use conn <- connect()
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Float(3.14)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Float(3.14)], conn)
 
   let assert 1 = queried.count
 
@@ -768,18 +768,18 @@ pub fn float_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE float_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val REAL)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let floats = [0.0, 1.5, -42.195, 3.14159265358979, 1.0e10]
 
   let assert Ok(_) = {
     use val <- list.try_map(floats)
     "INSERT INTO float_test (val) VALUES (?)"
-    |> plume.query([plume.Float(val)], conn)
+    |> vane.query([vane.Float(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM float_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM float_test ORDER BY id", [], conn)
 
   let assert 5 = queried.count
 
@@ -798,7 +798,7 @@ pub fn bytea_bind_test() {
   use conn <- connect()
 
   let bytes = <<0, 1, 2, 255>>
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Bytea(bytes)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Bytea(bytes)], conn)
 
   let assert 1 = queried.count
 
@@ -814,7 +814,7 @@ pub fn bytea_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bytea_test (id INTEGER PRIMARY KEY AUTOINCREMENT, data BLOB)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let blobs = [
     <<>>,
@@ -827,11 +827,11 @@ pub fn bytea_roundtrip_test() {
   let assert Ok(_) = {
     use val <- list.try_map(blobs)
     "INSERT INTO bytea_test (data) VALUES (?)"
-    |> plume.query([plume.Bytea(val)], conn)
+    |> vane.query([vane.Bytea(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT data FROM bytea_test ORDER BY id", [], conn)
+    vane.query("SELECT data FROM bytea_test ORDER BY id", [], conn)
 
   let assert 5 = queried.count
 
@@ -854,7 +854,7 @@ pub fn datetime_bind_test() {
     calendar.TimeOfDay(hours: 14, minutes: 30, seconds: 45, nanoseconds: 0)
 
   let assert Ok(queried) =
-    plume.query("SELECT ?", [plume.Datetime(date, time)], conn)
+    vane.query("SELECT ?", [vane.Datetime(date, time)], conn)
 
   let assert 1 = queried.count
 }
@@ -864,7 +864,7 @@ pub fn datetime_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE datetime_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dt_col TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let datetimes = [
     // Simple date + time
@@ -890,11 +890,11 @@ pub fn datetime_roundtrip_test() {
     use dt <- list.try_map(datetimes)
     let #(date, time) = dt
     "INSERT INTO datetime_test (dt_col) VALUES (?)"
-    |> plume.query([plume.Datetime(date, time)], conn)
+    |> vane.query([vane.Datetime(date, time)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT dt_col FROM datetime_test ORDER BY id", [], conn)
+    vane.query("SELECT dt_col FROM datetime_test ORDER BY id", [], conn)
 
   let assert 4 = queried.count
 
@@ -914,10 +914,10 @@ pub fn empty_result_set_test() {
 
   let assert Ok(_) =
     "CREATE TABLE empty_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(queried) =
-    plume.query("SELECT id, name FROM empty_test", [], conn)
+    vane.query("SELECT id, name FROM empty_test", [], conn)
 
   assert queried.count == 0
   assert queried.rows == []
@@ -931,36 +931,36 @@ pub fn multiple_mixed_params_test() {
 
   let assert Ok(_) =
     "CREATE TABLE mixed_test (id INTEGER, name TEXT, score REAL, data BLOB, active INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO mixed_test (id, name, score, data, active) VALUES (?, ?, ?, ?, ?)"
-    |> plume.query(
+    |> vane.query(
       [
-        plume.Int(42),
-        plume.Text("Alice"),
-        plume.Float(99.5),
-        plume.Bytea(<<1, 2, 3>>),
-        plume.Bool(True),
+        vane.Int(42),
+        vane.Text("Alice"),
+        vane.Float(99.5),
+        vane.Bytea(<<1, 2, 3>>),
+        vane.Bool(True),
       ],
       conn,
     )
 
   let assert Ok(_) =
     "INSERT INTO mixed_test (id, name, score, data, active) VALUES (?, ?, ?, ?, ?)"
-    |> plume.query(
+    |> vane.query(
       [
-        plume.Int(43),
-        plume.Null,
-        plume.Float(0.0),
-        plume.Bytea(<<>>),
-        plume.Bool(False),
+        vane.Int(43),
+        vane.Null,
+        vane.Float(0.0),
+        vane.Bytea(<<>>),
+        vane.Bool(False),
       ],
       conn,
     )
 
   let assert Ok(queried) =
-    plume.query(
+    vane.query(
       "SELECT id, name, score, data, active FROM mixed_test ORDER BY id",
       [],
       conn,
@@ -993,13 +993,13 @@ pub fn empty_string_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE string_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(_) =
     "INSERT INTO string_test (val) VALUES (?)"
-    |> plume.query([plume.Text("")], conn)
+    |> vane.query([vane.Text("")], conn)
 
-  let assert Ok(queried) = plume.query("SELECT val FROM string_test", [], conn)
+  let assert Ok(queried) = vane.query("SELECT val FROM string_test", [], conn)
 
   let assert 1 = queried.count
 
@@ -1017,58 +1017,57 @@ pub fn error_to_string_test() {
 
   let assert Error(err) =
     "SELEKT * FROM nope"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  let msg = plume.error_to_string(err)
+  let msg = vane.error_to_string(err)
 
   assert string.contains(msg, "ERROR")
   assert string.contains(msg, "SELEKT")
 }
 
 pub fn use_after_close_crashes_test() {
-  let config = plume.config(":memory:")
-  let assert Ok(conn) = plume.open(config)
-  let assert Ok(Nil) = plume.close(conn)
+  let config = vane.config(":memory:")
+  let assert Ok(conn) = vane.open(config)
+  let assert Ok(Nil) = vane.close(conn)
 
-  let result = plume.execute("SELECT 1", conn)
-  let assert Error(plume.ConnectionUnavailable) = result
+  let result = vane.execute("SELECT 1", conn)
+  let assert Error(vane.ConnectionUnavailable) = result
 }
 
 pub fn open_invalid_path_test() {
-  let config = plume.config("/nonexistent/path/to/db.sqlite")
-  let assert Error(plume.ConnectionFailed) = plume.open(config)
+  let config = vane.config("/nonexistent/path/to/db.sqlite")
+  let assert Error(vane.ConnectionFailed) = vane.open(config)
 }
 
 pub fn close_double_close_test() {
-  let config = plume.config(":memory:")
-  let assert Ok(conn) = plume.open(config)
-  let assert Ok(Nil) = plume.close(conn)
+  let config = vane.config(":memory:")
+  let assert Ok(conn) = vane.open(config)
+  let assert Ok(Nil) = vane.close(conn)
 
-  let _result = plume.close(conn)
+  let _result = vane.close(conn)
 }
 
 pub fn use_after_close_returns_connection_unavailable_test() {
-  let config = plume.config(":memory:")
-  let assert Ok(conn) = plume.open(config)
-  let assert Ok(Nil) = plume.close(conn)
+  let config = vane.config(":memory:")
+  let assert Ok(conn) = vane.open(config)
+  let assert Ok(Nil) = vane.close(conn)
 
-  let assert Error(plume.ConnectionUnavailable) =
-    plume.execute("SELECT 1", conn)
+  let assert Error(vane.ConnectionUnavailable) = vane.execute("SELECT 1", conn)
 }
 
 pub fn query_after_close_returns_connection_unavailable_test() {
-  let config = plume.config(":memory:")
-  let assert Ok(conn) = plume.open(config)
-  let assert Ok(Nil) = plume.close(conn)
+  let config = vane.config(":memory:")
+  let assert Ok(conn) = vane.open(config)
+  let assert Ok(Nil) = vane.close(conn)
 
-  let assert Error(plume.ConnectionUnavailable) =
-    plume.query("SELECT 1", [], conn)
+  let assert Error(vane.ConnectionUnavailable) =
+    vane.query("SELECT 1", [], conn)
 }
 
 pub fn int_bind_test() {
   use conn <- connect()
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Int(42)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Int(42)], conn)
 
   let assert 1 = queried.count
 
@@ -1084,18 +1083,18 @@ pub fn int_roundtrip_test() {
 
   let assert Ok(_) =
     "CREATE TABLE int_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let ints = [0, 1, -1, 42, -42, 2_147_483_647, -2_147_483_648]
 
   let assert Ok(_) = {
     use val <- list.try_map(ints)
     "INSERT INTO int_test (val) VALUES (?)"
-    |> plume.query([plume.Int(val)], conn)
+    |> vane.query([vane.Int(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM int_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM int_test ORDER BY id", [], conn)
 
   let assert 7 = queried.count
 
@@ -1113,7 +1112,7 @@ pub fn int_large_values_test() {
 
   let assert Ok(_) =
     "CREATE TABLE bigint_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let large_ints = [
     9_223_372_036_854_775_807,
@@ -1123,11 +1122,11 @@ pub fn int_large_values_test() {
   let assert Ok(_) = {
     use val <- list.try_map(large_ints)
     "INSERT INTO bigint_test (val) VALUES (?)"
-    |> plume.query([plume.Int(val)], conn)
+    |> vane.query([vane.Int(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM bigint_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM bigint_test ORDER BY id", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1141,7 +1140,7 @@ pub fn int_large_values_test() {
 pub fn text_bind_test() {
   use conn <- connect()
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Text("hello")], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Text("hello")], conn)
 
   let assert 1 = queried.count
 
@@ -1157,7 +1156,7 @@ pub fn text_unicode_test() {
 
   let assert Ok(_) =
     "CREATE TABLE unicode_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let strings = [
     "Hello 🌍🎉",
@@ -1170,11 +1169,11 @@ pub fn text_unicode_test() {
   let assert Ok(_) = {
     use val <- list.try_map(strings)
     "INSERT INTO unicode_test (val) VALUES (?)"
-    |> plume.query([plume.Text(val)], conn)
+    |> vane.query([vane.Text(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM unicode_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM unicode_test ORDER BY id", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1190,7 +1189,7 @@ pub fn text_special_chars_test() {
 
   let assert Ok(_) =
     "CREATE TABLE special_test (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let strings = [
     "'; DROP TABLE users; --",
@@ -1202,11 +1201,11 @@ pub fn text_special_chars_test() {
   let assert Ok(_) = {
     use val <- list.try_map(strings)
     "INSERT INTO special_test (val) VALUES (?)"
-    |> plume.query([plume.Text(val)], conn)
+    |> vane.query([vane.Text(val)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT val FROM special_test ORDER BY id", [], conn)
+    vane.query("SELECT val FROM special_test ORDER BY id", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1218,120 +1217,120 @@ pub fn text_special_chars_test() {
 }
 
 pub fn error_to_string_connection_failed_test() {
-  let msg = plume.error_to_string(plume.ConnectionFailed)
-  assert msg == "[plume.ConnectionFailed]"
+  let msg = vane.error_to_string(vane.ConnectionFailed)
+  assert msg == "[vane.ConnectionFailed]"
 }
 
 pub fn error_to_string_connection_unavailable_test() {
-  let msg = plume.error_to_string(plume.ConnectionUnavailable)
-  assert msg == "[plume.ConnectionUnavailable]"
+  let msg = vane.error_to_string(vane.ConnectionUnavailable)
+  assert msg == "[vane.ConnectionUnavailable]"
 }
 
 pub fn error_to_string_db_error_format_test() {
   let err =
-    plume.DbError(
-      code: plume.ConstraintUnique,
+    vane.DbError(
+      code: vane.ConstraintUnique,
       message: "UNIQUE constraint failed",
       detail: "constraint failed",
       offset: 42,
     )
-  let msg = plume.error_to_string(err)
+  let msg = vane.error_to_string(err)
 
   assert msg
-    == "[plume.DbError] code: CONSTRAINT_UNIQUE, message: UNIQUE constraint failed, detail: constraint failed"
+    == "[vane.DbError] code: CONSTRAINT_UNIQUE, message: UNIQUE constraint failed, detail: constraint failed"
 }
 
 pub fn code_from_int_primary_codes_test() {
-  assert plume.code_from_int(0) == plume.GenericOk
-  assert plume.code_from_int(1) == plume.GenericError
-  assert plume.code_from_int(2) == plume.Internal
-  assert plume.code_from_int(3) == plume.Perm
-  assert plume.code_from_int(4) == plume.Abort
-  assert plume.code_from_int(5) == plume.Busy
-  assert plume.code_from_int(6) == plume.Locked
-  assert plume.code_from_int(7) == plume.Nomem
-  assert plume.code_from_int(8) == plume.Readonly
-  assert plume.code_from_int(9) == plume.Interrupt
-  assert plume.code_from_int(10) == plume.Ioerr
-  assert plume.code_from_int(11) == plume.Corrupt
-  assert plume.code_from_int(12) == plume.Notfound
-  assert plume.code_from_int(13) == plume.Full
-  assert plume.code_from_int(14) == plume.Cantopen
-  assert plume.code_from_int(15) == plume.Protocol
-  assert plume.code_from_int(16) == plume.Empty
-  assert plume.code_from_int(17) == plume.Schema
-  assert plume.code_from_int(18) == plume.Toobig
-  assert plume.code_from_int(19) == plume.Constraint
-  assert plume.code_from_int(20) == plume.Mismatch
-  assert plume.code_from_int(21) == plume.Misuse
-  assert plume.code_from_int(22) == plume.Nolfs
-  assert plume.code_from_int(23) == plume.Auth
-  assert plume.code_from_int(24) == plume.Format
-  assert plume.code_from_int(25) == plume.Range
-  assert plume.code_from_int(26) == plume.Notadb
-  assert plume.code_from_int(27) == plume.Notice
-  assert plume.code_from_int(28) == plume.Warning
-  assert plume.code_from_int(100) == plume.Row
-  assert plume.code_from_int(101) == plume.Done
+  assert vane.code_from_int(0) == vane.GenericOk
+  assert vane.code_from_int(1) == vane.GenericError
+  assert vane.code_from_int(2) == vane.Internal
+  assert vane.code_from_int(3) == vane.Perm
+  assert vane.code_from_int(4) == vane.Abort
+  assert vane.code_from_int(5) == vane.Busy
+  assert vane.code_from_int(6) == vane.Locked
+  assert vane.code_from_int(7) == vane.Nomem
+  assert vane.code_from_int(8) == vane.Readonly
+  assert vane.code_from_int(9) == vane.Interrupt
+  assert vane.code_from_int(10) == vane.Ioerr
+  assert vane.code_from_int(11) == vane.Corrupt
+  assert vane.code_from_int(12) == vane.Notfound
+  assert vane.code_from_int(13) == vane.Full
+  assert vane.code_from_int(14) == vane.Cantopen
+  assert vane.code_from_int(15) == vane.Protocol
+  assert vane.code_from_int(16) == vane.Empty
+  assert vane.code_from_int(17) == vane.Schema
+  assert vane.code_from_int(18) == vane.Toobig
+  assert vane.code_from_int(19) == vane.Constraint
+  assert vane.code_from_int(20) == vane.Mismatch
+  assert vane.code_from_int(21) == vane.Misuse
+  assert vane.code_from_int(22) == vane.Nolfs
+  assert vane.code_from_int(23) == vane.Auth
+  assert vane.code_from_int(24) == vane.Format
+  assert vane.code_from_int(25) == vane.Range
+  assert vane.code_from_int(26) == vane.Notadb
+  assert vane.code_from_int(27) == vane.Notice
+  assert vane.code_from_int(28) == vane.Warning
+  assert vane.code_from_int(100) == vane.Row
+  assert vane.code_from_int(101) == vane.Done
 }
 
 pub fn code_from_int_extended_codes_test() {
-  assert plume.code_from_int(516) == plume.AbortRollback
-  assert plume.code_from_int(279) == plume.AuthUser
-  assert plume.code_from_int(261) == plume.BusyRecovery
-  assert plume.code_from_int(517) == plume.BusySnapshot
-  assert plume.code_from_int(773) == plume.BusyTimeout
-  assert plume.code_from_int(1038) == plume.CantopenConvpath
-  assert plume.code_from_int(1294) == plume.CantopenDirtywal
-  assert plume.code_from_int(782) == plume.CantopenFullpath
-  assert plume.code_from_int(526) == plume.CantopenIsdir
-  assert plume.code_from_int(270) == plume.CantopenNotempdir
-  assert plume.code_from_int(1550) == plume.CantopenSymlink
-  assert plume.code_from_int(275) == plume.ConstraintCheck
-  assert plume.code_from_int(531) == plume.ConstraintCommithook
-  assert plume.code_from_int(3091) == plume.ConstraintDatatype
-  assert plume.code_from_int(787) == plume.ConstraintForeignkey
-  assert plume.code_from_int(1043) == plume.ConstraintFunction
-  assert plume.code_from_int(1299) == plume.ConstraintNotnull
-  assert plume.code_from_int(2835) == plume.ConstraintPinned
-  assert plume.code_from_int(1555) == plume.ConstraintPrimarykey
-  assert plume.code_from_int(2579) == plume.ConstraintRowid
-  assert plume.code_from_int(1811) == plume.ConstraintTrigger
-  assert plume.code_from_int(2067) == plume.ConstraintUnique
-  assert plume.code_from_int(2323) == plume.ConstraintVtab
-  assert plume.code_from_int(779) == plume.CorruptIndex
-  assert plume.code_from_int(523) == plume.CorruptSequence
-  assert plume.code_from_int(267) == plume.CorruptVtab
-  assert plume.code_from_int(257) == plume.ErrorMissingCollseq
-  assert plume.code_from_int(513) == plume.ErrorRetry
-  assert plume.code_from_int(769) == plume.ErrorSnapshot
-  assert plume.code_from_int(3338) == plume.IoerrAccess
-  assert plume.code_from_int(7178) == plume.IoerrAuth
-  assert plume.code_from_int(7434) == plume.IoerrBeginAtomic
-  assert plume.code_from_int(2826) == plume.IoerrBlocked
-  assert plume.code_from_int(3594) == plume.IoerrCheckreservedlock
-  assert plume.code_from_int(4106) == plume.IoerrClose
-  assert plume.code_from_int(7690) == plume.IoerrCommitAtomic
-  assert plume.code_from_int(6666) == plume.IoerrConvpath
-  assert plume.code_from_int(8458) == plume.IoerrCorruptfs
-  assert plume.code_from_int(8202) == plume.IoerrData
-  assert plume.code_from_int(2570) == plume.IoerrDelete
-  assert plume.code_from_int(5898) == plume.IoerrDeleteNoent
-  assert plume.code_from_int(4362) == plume.IoerrDirClose
-  assert plume.code_from_int(1290) == plume.IoerrDirFsync
-  assert plume.code_from_int(1802) == plume.IoerrFstat
-  assert plume.code_from_int(1034) == plume.IoerrFsync
-  assert plume.code_from_int(6410) == plume.IoerrGettemppath
-  assert plume.code_from_int(3850) == plume.IoerrLock
-  assert plume.code_from_int(6154) == plume.IoerrMmap
-  assert plume.code_from_int(3082) == plume.IoerrNomem
-  assert plume.code_from_int(2314) == plume.IoerrRdlock
+  assert vane.code_from_int(516) == vane.AbortRollback
+  assert vane.code_from_int(279) == vane.AuthUser
+  assert vane.code_from_int(261) == vane.BusyRecovery
+  assert vane.code_from_int(517) == vane.BusySnapshot
+  assert vane.code_from_int(773) == vane.BusyTimeout
+  assert vane.code_from_int(1038) == vane.CantopenConvpath
+  assert vane.code_from_int(1294) == vane.CantopenDirtywal
+  assert vane.code_from_int(782) == vane.CantopenFullpath
+  assert vane.code_from_int(526) == vane.CantopenIsdir
+  assert vane.code_from_int(270) == vane.CantopenNotempdir
+  assert vane.code_from_int(1550) == vane.CantopenSymlink
+  assert vane.code_from_int(275) == vane.ConstraintCheck
+  assert vane.code_from_int(531) == vane.ConstraintCommithook
+  assert vane.code_from_int(3091) == vane.ConstraintDatatype
+  assert vane.code_from_int(787) == vane.ConstraintForeignkey
+  assert vane.code_from_int(1043) == vane.ConstraintFunction
+  assert vane.code_from_int(1299) == vane.ConstraintNotnull
+  assert vane.code_from_int(2835) == vane.ConstraintPinned
+  assert vane.code_from_int(1555) == vane.ConstraintPrimarykey
+  assert vane.code_from_int(2579) == vane.ConstraintRowid
+  assert vane.code_from_int(1811) == vane.ConstraintTrigger
+  assert vane.code_from_int(2067) == vane.ConstraintUnique
+  assert vane.code_from_int(2323) == vane.ConstraintVtab
+  assert vane.code_from_int(779) == vane.CorruptIndex
+  assert vane.code_from_int(523) == vane.CorruptSequence
+  assert vane.code_from_int(267) == vane.CorruptVtab
+  assert vane.code_from_int(257) == vane.ErrorMissingCollseq
+  assert vane.code_from_int(513) == vane.ErrorRetry
+  assert vane.code_from_int(769) == vane.ErrorSnapshot
+  assert vane.code_from_int(3338) == vane.IoerrAccess
+  assert vane.code_from_int(7178) == vane.IoerrAuth
+  assert vane.code_from_int(7434) == vane.IoerrBeginAtomic
+  assert vane.code_from_int(2826) == vane.IoerrBlocked
+  assert vane.code_from_int(3594) == vane.IoerrCheckreservedlock
+  assert vane.code_from_int(4106) == vane.IoerrClose
+  assert vane.code_from_int(7690) == vane.IoerrCommitAtomic
+  assert vane.code_from_int(6666) == vane.IoerrConvpath
+  assert vane.code_from_int(8458) == vane.IoerrCorruptfs
+  assert vane.code_from_int(8202) == vane.IoerrData
+  assert vane.code_from_int(2570) == vane.IoerrDelete
+  assert vane.code_from_int(5898) == vane.IoerrDeleteNoent
+  assert vane.code_from_int(4362) == vane.IoerrDirClose
+  assert vane.code_from_int(1290) == vane.IoerrDirFsync
+  assert vane.code_from_int(1802) == vane.IoerrFstat
+  assert vane.code_from_int(1034) == vane.IoerrFsync
+  assert vane.code_from_int(6410) == vane.IoerrGettemppath
+  assert vane.code_from_int(3850) == vane.IoerrLock
+  assert vane.code_from_int(6154) == vane.IoerrMmap
+  assert vane.code_from_int(3082) == vane.IoerrNomem
+  assert vane.code_from_int(2314) == vane.IoerrRdlock
 }
 
 pub fn code_from_int_unknown_returns_unexpected_error_test() {
-  assert plume.code_from_int(99_999) == plume.UnexpectedError
-  assert plume.code_from_int(-1) == plume.UnexpectedError
-  assert plume.code_from_int(-999) == plume.UnexpectedError
+  assert vane.code_from_int(99_999) == vane.UnexpectedError
+  assert vane.code_from_int(-1) == vane.UnexpectedError
+  assert vane.code_from_int(-999) == vane.UnexpectedError
 }
 
 pub fn exec_ddl_returns_zero_test() {
@@ -1339,15 +1338,15 @@ pub fn exec_ddl_returns_zero_test() {
 
   let assert Ok(0) =
     "CREATE TABLE ddl_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(0) =
     "ALTER TABLE ddl_test ADD COLUMN email TEXT"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(0) =
     "DROP TABLE ddl_test"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 }
 
 pub fn exec_multi_row_changes_test() {
@@ -1355,22 +1354,22 @@ pub fn exec_multi_row_changes_test() {
 
   let assert Ok(0) =
     "CREATE TABLE multi_test (id INTEGER PRIMARY KEY, val TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
-    plume.execute("INSERT INTO multi_test VALUES (1, 'a')", conn)
+    vane.execute("INSERT INTO multi_test VALUES (1, 'a')", conn)
   let assert Ok(1) =
-    plume.execute("INSERT INTO multi_test VALUES (2, 'b')", conn)
+    vane.execute("INSERT INTO multi_test VALUES (2, 'b')", conn)
   let assert Ok(1) =
-    plume.execute("INSERT INTO multi_test VALUES (3, 'c')", conn)
+    vane.execute("INSERT INTO multi_test VALUES (3, 'c')", conn)
 
   let assert Ok(3) =
     "UPDATE multi_test SET val = 'updated'"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(3) =
     "DELETE FROM multi_test"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 }
 
 pub fn time_milliseconds_under_10_test() {
@@ -1378,7 +1377,7 @@ pub fn time_milliseconds_under_10_test() {
 
   let time = calendar.TimeOfDay(10, 20, 30, 5_000_000)
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Time(time)], conn)
 
   let assert Ok(["10:20:30.005"]) =
     decode_rows(queried.rows, {
@@ -1392,7 +1391,7 @@ pub fn time_milliseconds_10_to_99_test() {
 
   let time = calendar.TimeOfDay(10, 20, 30, 50_000_000)
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Time(time)], conn)
 
   let assert Ok(["10:20:30.050"]) =
     decode_rows(queried.rows, {
@@ -1406,7 +1405,7 @@ pub fn time_milliseconds_exactly_100_test() {
 
   let time = calendar.TimeOfDay(10, 20, 30, 100_000_000)
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Time(time)], conn)
 
   let assert Ok(["10:20:30.100"]) =
     decode_rows(queried.rows, {
@@ -1420,7 +1419,7 @@ pub fn time_no_milliseconds_test() {
 
   let time = calendar.TimeOfDay(8, 5, 0, 0)
 
-  let assert Ok(queried) = plume.query("SELECT ?", [plume.Time(time)], conn)
+  let assert Ok(queried) = vane.query("SELECT ?", [vane.Time(time)], conn)
 
   let assert Ok(["08:05:00"]) =
     decode_rows(queried.rows, {
@@ -1434,16 +1433,15 @@ pub fn duration_zero_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dur_zero_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let dur = duration.seconds(0)
 
   let assert Ok(_) =
     "INSERT INTO dur_zero_test (dur) VALUES (?)"
-    |> plume.query([plume.Duration(dur)], conn)
+    |> vane.query([vane.Duration(dur)], conn)
 
-  let assert Ok(queried) =
-    plume.query("SELECT dur FROM dur_zero_test", [], conn)
+  let assert Ok(queried) = vane.query("SELECT dur FROM dur_zero_test", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1459,7 +1457,7 @@ pub fn duration_nanoseconds_only_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dur_ns_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dur INTEGER)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let durations = [
     duration.nanoseconds(1),
@@ -1470,11 +1468,11 @@ pub fn duration_nanoseconds_only_test() {
   let assert Ok(_) = {
     use dur <- list.try_map(durations)
     "INSERT INTO dur_ns_test (dur) VALUES (?)"
-    |> plume.query([plume.Duration(dur)], conn)
+    |> vane.query([vane.Duration(dur)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT dur FROM dur_ns_test ORDER BY id", [], conn)
+    vane.query("SELECT dur FROM dur_ns_test ORDER BY id", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1490,7 +1488,7 @@ pub fn date_single_digit_day_and_month_test() {
 
   let assert Ok(_) =
     "CREATE TABLE date_pad_test (id INTEGER PRIMARY KEY AUTOINCREMENT, d TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let dates = [
     calendar.Date(2025, calendar.January, 1),
@@ -1502,11 +1500,11 @@ pub fn date_single_digit_day_and_month_test() {
   let assert Ok(_) = {
     use date <- list.try_map(dates)
     "INSERT INTO date_pad_test (d) VALUES (?)"
-    |> plume.query([plume.Date(date)], conn)
+    |> vane.query([vane.Date(date)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT d FROM date_pad_test ORDER BY id", [], conn)
+    vane.query("SELECT d FROM date_pad_test ORDER BY id", [], conn)
 
   let assert Ok(raw) =
     decode_rows(queried.rows, {
@@ -1530,18 +1528,14 @@ pub fn query_parameterized_empty_result_test() {
 
   let assert Ok(0) =
     "CREATE TABLE param_empty (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO param_empty VALUES (1, 'exists')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(queried) =
-    plume.query(
-      "SELECT * FROM param_empty WHERE id = ?",
-      [plume.Int(999)],
-      conn,
-    )
+    vane.query("SELECT * FROM param_empty WHERE id = ?", [vane.Int(999)], conn)
 
   assert queried.count == 0
   assert queried.rows == []
@@ -1553,14 +1547,14 @@ pub fn query_expression_fields_test() {
 
   let assert Ok(0) =
     "CREATE TABLE expr_test (id INTEGER PRIMARY KEY, name TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO expr_test VALUES (1, 'test')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(queried) =
-    plume.query("SELECT 1+1, COUNT(*), name AS alias FROM expr_test", [], conn)
+    vane.query("SELECT 1+1, COUNT(*), name AS alias FROM expr_test", [], conn)
 
   assert queried.count == 1
   assert queried.fields == ["1+1", "COUNT(*)", "alias"]
@@ -1571,31 +1565,31 @@ pub fn constraint_unique_error_test() {
 
   let assert Ok(0) =
     "CREATE TABLE uniq_test (id INTEGER PRIMARY KEY, email TEXT UNIQUE)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(1) =
     "INSERT INTO uniq_test VALUES (1, 'a@b.com')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  let assert Error(plume.DbError(code, _msg, _detail, _offset)) =
+  let assert Error(vane.DbError(code, _msg, _detail, _offset)) =
     "INSERT INTO uniq_test VALUES (2, 'a@b.com')"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
-  assert plume.ConstraintUnique == code
+  assert vane.ConstraintUnique == code
 }
 
 pub fn syntax_error_offset_test() {
   use conn <- connect()
 
-  let assert Error(plume.DbError(_, _, _, offset)) =
+  let assert Error(vane.DbError(_, _, _, offset)) =
     "SELEKT 1"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   assert offset == 0
 
-  let assert Error(plume.DbError(_, _, _, offset2)) =
+  let assert Error(vane.DbError(_, _, _, offset2)) =
     "SELECT 1 FORM users"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   assert offset2 > 0
 }
@@ -1605,7 +1599,7 @@ pub fn datetime_millisecond_branches_test() {
 
   let assert Ok(_) =
     "CREATE TABLE dt_ms_test (id INTEGER PRIMARY KEY AUTOINCREMENT, dt TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let datetimes = [
     #(
@@ -1627,11 +1621,11 @@ pub fn datetime_millisecond_branches_test() {
     use dt <- list.try_map(datetimes)
     let #(date, time) = dt
     "INSERT INTO dt_ms_test (dt) VALUES (?)"
-    |> plume.query([plume.Datetime(date, time)], conn)
+    |> vane.query([vane.Datetime(date, time)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT dt FROM dt_ms_test ORDER BY id", [], conn)
+    vane.query("SELECT dt FROM dt_ms_test ORDER BY id", [], conn)
 
   let assert Ok(raw) =
     decode_rows(queried.rows, {
@@ -1661,7 +1655,7 @@ pub fn timestamp_negative_test() {
 
   let assert Ok(_) =
     "CREATE TABLE ts_neg_test (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let timestamps = [
     timestamp.from_unix_seconds(-1),
@@ -1671,11 +1665,11 @@ pub fn timestamp_negative_test() {
   let assert Ok(_) = {
     use ts <- list.try_map(timestamps)
     "INSERT INTO ts_neg_test (ts) VALUES (?)"
-    |> plume.query([plume.Timestamp(ts)], conn)
+    |> vane.query([vane.Timestamp(ts)], conn)
   }
 
   let assert Ok(queried) =
-    plume.query("SELECT ts FROM ts_neg_test ORDER BY id", [], conn)
+    vane.query("SELECT ts FROM ts_neg_test ORDER BY id", [], conn)
 
   let assert Ok(decoded) =
     decode_rows(queried.rows, {
@@ -1691,25 +1685,25 @@ pub fn query_constraint_error_test() {
 
   let assert Ok(0) =
     "CREATE TABLE q_uniq (id INTEGER PRIMARY KEY, name TEXT UNIQUE)"
-    |> plume.execute(conn)
+    |> vane.execute(conn)
 
   let assert Ok(_) =
-    plume.query(
+    vane.query(
       "INSERT INTO q_uniq VALUES (?, ?)",
-      [plume.Int(1), plume.Text("alice")],
+      [vane.Int(1), vane.Text("alice")],
       conn,
     )
 
-  let assert Error(plume.DbError(code, msg, _detail, _offset)) =
-    plume.query(
+  let assert Error(vane.DbError(code, msg, _detail, _offset)) =
+    vane.query(
       "INSERT INTO q_uniq VALUES (?, ?)",
-      [plume.Int(2), plume.Text("alice")],
+      [vane.Int(2), vane.Text("alice")],
       conn,
     )
 
-  assert plume.ConstraintUnique == code
+  assert vane.ConstraintUnique == code
   assert msg == "UNIQUE constraint failed: q_uniq.name"
 }
 
-@external(erlang, "plume_ffi", "rescue")
+@external(erlang, "vane_ffi", "rescue")
 fn with_rescue(next: fn() -> t) -> Result(t, Nil)
